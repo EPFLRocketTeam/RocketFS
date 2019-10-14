@@ -24,6 +24,7 @@
  * Emulator functions
  */
 void emu_init();
+void emu_deinit();
 void emu_read(uint32_t address, uint8_t* buffer, uint32_t length);
 void emu_write(uint32_t address, uint8_t* buffer, uint32_t length);
 void emu_erase_subsector(uint32_t address);
@@ -34,9 +35,9 @@ void emu_erase_sector(uint32_t address);
 /*
  * Export constants required by io_bridge.h
  */
-#define FS_ADDRESSABLE_SPACE 1 << 24 // 16MB (should be extended to 128MB)
-#define FS_SECTOR_SIZE       1 << 19 // 512KB
-#define FS_SUBSECTOR_SIZE    1 << 12 // 4KB
+#define FS_ADDRESSABLE_SPACE (1 << 24) // 16MB (should be extended to 128MB)
+#define FS_SECTOR_SIZE       (1 << 19) // 512KB
+#define FS_SUBSECTOR_SIZE    (1 << 12) // 4KB
 
 
 
@@ -48,11 +49,6 @@ inline void fs_write(uint32_t a, uint8_t* b, uint32_t c) { emu_write(a, b, c); }
 inline void fs_erase_subsector(uint32_t a) { emu_erase_subsector(a); }
 inline void fs_erase_sector(uint32_t a) { emu_erase_sector(a); }
 
-
-/*
- * Force io_bridge.h to be included now, so that the defines are correctly bound.
- */
-#include "io_bridge.h"
 
 
 

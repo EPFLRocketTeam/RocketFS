@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "emulator.h"
 
@@ -14,14 +15,14 @@
  * Utils
  */
 void __emu_fatal(const char* message) {
-	printf(message);
+	printf("%s", message);
 	printf("Emulator crashed. Insert a breakpoint here for debugging.\n");
 	while(1);
 }
 
 void __memand(uint8_t* destination, uint8_t* source, uint32_t length) {
 	while(length-- > 0) {
-		destination &= source;
+		destination[0] &= source[0];
 
 		destination++;
 		source++;
@@ -59,7 +60,7 @@ void emu_read(uint32_t address, uint8_t* buffer, uint32_t length) {
 		__emu_fatal("Memory access attempt out of addressable space (emu_read)\n");
 	}
 
-	memcpy(buffer, __emu_memory + address, 0, length);
+	memcpy(buffer, __emu_memory + address, length);
 }
 
 void emu_write(uint32_t address, uint8_t* buffer, uint32_t length) {

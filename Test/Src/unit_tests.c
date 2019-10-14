@@ -5,13 +5,14 @@
  *      Author: pcoo56
  */
 
-#include "emulator.h"
 #include "unit_tests.h"
+#include "emulator.h"
 
 #ifdef TESTING
 
 int main() {
 	emu_init();
+	emu_deinit();
 	return 0;
 }
 
