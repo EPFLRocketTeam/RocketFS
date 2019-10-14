@@ -49,6 +49,11 @@ inline void fs_erase_subsector(uint32_t a) { emu_erase_subsector(a); }
 inline void fs_erase_sector(uint32_t a) { emu_erase_sector(a); }
 
 
+/*
+ * Force io_bridge.h to be included now, so that the defines are correctly bound.
+ */
+#include "io_bridge.h"
+
 
 
 #endif
