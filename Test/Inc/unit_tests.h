@@ -9,7 +9,7 @@
 #define TEST_INC_UNIT_TESTS_H_
 
 
-#define DEBUG
+#define TESTING
 
 
 #endif /* TEST_INC_UNIT_TESTS_H_ */

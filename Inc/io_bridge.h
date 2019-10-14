@@ -12,8 +12,17 @@
 #include <stdint.h>
 
 
-#define SECTOR_SIZE 1 << 19
-#define SUBSECTOR_SIZE 1 << 12
+#ifndef FS_ADDRESSABLE_SPACE
+#error Please define the FS_ADDRESSABLE_SPACE constant
+#endif
+
+#ifndef FS_SECTOR_SIZE
+#error Please define the SECTOR_SIZE constant
+#endif
+
+#ifndef FS_SUBSECTOR_SIZE
+#error Please define the SUBSECTOR_SIZE constant
+#endif
 
 
 void fs_read(uint32_t address, uint8_t* buffer, uint32_t length);

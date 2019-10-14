@@ -8,9 +8,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define DEBUG
+#include "unit_tests.h"
 
-#ifdef DEBUG
+#ifdef TESTING
 
 int main() {
 	printf("Hello world\n");
