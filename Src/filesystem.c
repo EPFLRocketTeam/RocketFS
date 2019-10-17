@@ -7,6 +7,7 @@
 
 #include "filesystem.h"
 #include "io_utils.h"
+#include "stream.h"
 
 /*
  * FileSystem structure
@@ -55,6 +56,16 @@ static uint8_t __clamp(uint8_t input, uint8_t start, uint8_t end) {
 	}
 }
 
+static uint64_t __signed_shift(int64_t input, int8_t amount) {
+	if(amount > 0) {
+		return input >> amount;
+	} else if(amount < 0) {
+		return input << (-amount);
+	} else {
+		return input;
+	}
+}
+
 static uint64_t __generate_periodic(uint8_t period) {
 	uint64_t periodic = 0;
 	uint64_t period_generator = (-1ULL) >> (64 - period / 2);
@@ -69,25 +80,26 @@ static uint64_t __generate_periodic(uint8_t period) {
 
 static bool __periodic_magic_match(uint8_t period, uint64_t testable_magic) {
 	static const uint16_t __gaussian_kernel[] = { 614, 2447, 3877, 2447, 614 };
-	static const uint16_t __gaussian_divider[] = { 13876, 18770, 19998 };
+	static const uint16_t __gaussian_divider[] = { 3470, 4693, 5000 };
 
 	uint8_t i, j;
-	uint64_t local_convolution = 0;
+	uint64_t weighted = 0;
 	uint64_t hard_coded_magic = __generate_periodic(period);
 
 	uint64_t filtered = 0;
 
 	for(i = 0; i < 64; i++) {
-		local_convolution = 0;
+		weighted = 0;
+		filtered <<= 1;
 
 		for(j = 0; j < 5; j++) {
-			local_convolution += __gaussian_kernel[j] * ((testable_magic >> (i + (j - 2))) & 0b1);
+			weighted += __gaussian_kernel[j] * (__signed_shift(testable_magic, 65 - i - j) & 0b1);
 		}
 
 		if(i < 32) {
-			filtered |= local_convolution / __gaussian_divider[__clamp(i, 0, 3)];
+			filtered |=  weighted / __gaussian_divider[__clamp(i, 0, 2)];
 		} else {
-			filtered |= local_convolution / __gaussian_divider[__clamp(64 - i, 0, 3)];
+			filtered |= weighted / __gaussian_divider[__clamp(64 - i, 0, 2)];
 		}
 	}
 
@@ -166,4 +178,16 @@ void rocket_fs_format(FileSystem* fs) {
 	uint64_t magic = __generate_periodic(MAGIC_PERIOD);
 
 	fs_write64(fs, 0, magic);
+}
+
+void rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
+
+}
+
+Stream rocket_fs_open(FileSystem* fs, const char* file) {
+
+}
+
+Stream rocket_fs_close() {
+
 }
