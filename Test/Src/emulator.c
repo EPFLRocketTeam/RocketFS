@@ -14,13 +14,13 @@
 /*
  * Utils
  */
-void __emu_fatal(const char* message) {
+static void __emu_fatal(const char* message) {
 	printf("%s", message);
 	printf("Emulator crashed. Insert a breakpoint here for debugging.\n");
 	while(1);
 }
 
-void __memand(uint8_t* destination, uint8_t* source, uint32_t length) {
+static void __memand(uint8_t* destination, uint8_t* source, uint32_t length) {
 	while(length-- > 0) {
 		destination[0] &= source[0];
 

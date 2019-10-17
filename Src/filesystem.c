@@ -6,7 +6,6 @@
  */
 
 #include "filesystem.h"
-#include "io_utils.h"
 #include "stream.h"
 
 /*
@@ -14,10 +13,10 @@
  *
  * Each 4KB subsector is called a 'block'.
  *
- * Block 0: Miscellaneous
+ * Block 0: Core block
  * 		2KB: RocketFS heuristic magic number
  * 		2KB: Metadata
- * Block 1: Master partition
+ * Block 1: Master partition (bit 0...3: FileType, 4...7: relative initialisation time)
  * Block 2: Recovery partition
  * Block 3: Backup slot 1
  * Block 4: Backup slot 2
@@ -34,6 +33,144 @@
  * Block 4094: Reserved (INVASIVE_TEST for flash memory)
  * Block 4095: Reserved (GENTLE_TEST for flash memory)
  */
+
+/*
+ * FileSystem functions
+ */
+void rocket_fs_debug(FileSystem* fs, void (*logger)(const char*)) {
+	fs->log = logger;
+	fs->debug = true;
+
+	fs->log("FileSystem log initialised.");
+}
+
+void rocket_fs_bind(
+	FileSystem* fs,
+	void (*read)(uint32_t, uint8_t*, uint32_t),
+	void (*write)(uint32_t, uint8_t*, uint32_t),
+	void (*erase_subsector)(uint32_t),
+	void (*erase_sector)(uint32_t)
+) {
+	fs->read = read;
+	fs->write = write;
+	fs->erase_subsector = erase_subsector;
+	fs->erase_sector = erase_sector;
+	fs->io_bound = true;
+}
+
+void rocket_fs_device(FileSystem* fs, const char *id, uint32_t capacity, uint32_t sector_size, uint32_t subsector_size) {
+	fs->id = id;
+	fs->addressable_space = capacity;
+	fs->sector_size = sector_size;
+	fs->subsector_size = subsector_size;
+	fs->device_configured = true;
+	fs->partition_table_modified = false;
+}
+
+void rocket_fs_mount(FileSystem* fs) {
+	if(!fs->debug) {
+		fs->log = &__no_log;
+	}
+
+	fs->log("Mounting filesystem...");
+
+	File core_block = { .identifier = "Core Block", .type = RAW, .length = fs->subsector_size};
+	File master_block = { .identifier = "Master Partition Block", .type = RAW, .length = fs->subsector_size};
+
+	Stream stream;
+	init_stream(&stream, fs, core_block);
+
+	uint64_t magic = stream.read64();
+	stream.close();
+
+	if(__periodic_magic_match(MAGIC_PERIOD, magic)) {
+		init_stream(&stream, fs, master_block);
+
+		uint32_t num_blocks = fs->addressable_space / fs->subsector_size;
+		// Here we supposed a relatively low granularity, implying that num_blocks < subsector_size.
+
+		uint64_t partition_table[num_blocks];
+
+		for(uint32_t i = 0; i < num_blocks; i++) {
+			partition_table[i] = stream.read8();
+		}
+
+		fs->partition_table = partition_table;
+
+		stream.close();
+	} else {
+		// TODO (a) Check redundant magic number.
+		// TODO (b) Write corrupted partition to a free backup slot.
+		fs->log("Mounting filesystem for the first time or filesystem corrupted. Formatting...");
+		rocket_fs_format(fs);
+	}
+
+	fs->log("Filesystem mounted");
+}
+
+
+
+void rocket_fs_format(FileSystem* fs) {
+	File core_block = { .identifier = "Core Block", .type = RAW, .length = fs->subsector_size};
+	File master_block = { .identifier = "Master Partition Block", .type = RAW, .length = fs->subsector_size};
+
+	fs->erase_subsector(0);    // Core block
+	fs->erase_subsector(fs->subsector_size); // Master partition block
+
+	uint64_t magic = __generate_periodic(MAGIC_PERIOD);
+
+	Stream stream;
+
+	init_stream(&stream, fs, core_block);
+
+	stream.write64(magic);
+
+	/*
+	 * ... write heuristic magic number and metadata
+	 */
+
+	stream.close();
+
+	init_stream(&stream, fs, core_block);
+
+	stream.write8(0b00001111); // Core block contains raw data and cannot be overwritten.
+	stream.write8(0b00001111); // Master partition block contains raw data and cannot be overwritten.
+	stream.write8(0b00001110); // Recovery partition block contains raw data and can be overwritten in extreme cases.
+	stream.write8(0b00001110); // Backup partition block 1 contains raw data and can be overwritten in extreme cases.
+	stream.write8(0b00001110); // Backup partition block 2 contains raw data and can be overwritten in extreme cases.
+	stream.write8(0b00001100); // Backup partition block 3 contains raw data and can be overwritten when the device is almost full.
+	stream.write8(0b00001100); // Backup partition block 4 contains raw data and can be overwritten when the device is almost full.
+
+	stream.close();
+
+	/*
+	 * The partition table does not need to be cleared.
+	 */
+}
+
+/*
+ * Flushed the partition table
+ */
+void rocket_fs_flush(FileSystem* fs) {
+
+}
+
+/*
+ * Names at most 16 characters long.
+ */
+void rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
+	File file = { .identifier = name, .type = type, .length = fs->subsector_size};
+}
+
+
+Stream rocket_fs_open(FileSystem* fs, const char* name) {
+	File file = { .identifier = name, .type = RAW, .length = fs->subsector_size};
+	Stream stream;
+	init_stream(&stream, fs, &file);
+	return stream;
+}
+
+
 
 /*
  * Corruption utility functions
@@ -115,79 +252,3 @@ static bool __periodic_magic_match(uint8_t period, uint64_t testable_magic) {
 }
 
 static void __no_log(const char* _) {}
-
-/*
- * FileSystem functions
- */
-void rocket_fs_debug(FileSystem* fs, void (*logger)(const char*)) {
-	fs->log = logger;
-	fs->debug = true;
-
-	fs->log("FileSystem log initialised.");
-}
-
-void rocket_fs_bind(
-	FileSystem* fs,
-	void (*read)(uint32_t, uint8_t*, uint32_t),
-	void (*write)(uint32_t, uint8_t*, uint32_t),
-	void (*erase_subsector)(uint32_t),
-	void (*erase_sector)(uint32_t)
-) {
-	fs->read = read;
-	fs->write = write;
-	fs->erase_subsector = erase_subsector;
-	fs->erase_sector = erase_sector;
-	fs->io_bound = true;
-}
-
-void rocket_fs_device(FileSystem* fs, const char *id, uint32_t capacity, uint32_t sector_size, uint32_t subsector_size) {
-	fs->id = id;
-	fs->addressable_space = capacity;
-	fs->sector_size = sector_size;
-	fs->subsector_size = subsector_size;
-	fs->device_configured = true;
-}
-
-void rocket_fs_mount(FileSystem* fs) {
-	if(!fs->debug) {
-		fs->log = &__no_log;
-	}
-
-	fs->log("Mounting filesystem...");
-
-	uint64_t magic = fs_read64(fs, 0);
-
-	if(__periodic_magic_match(MAGIC_PERIOD, magic)) {
-
-	} else {
-		// TODO (a) Check redundant magic number.
-		// TODO (b) Write corrupted partition to a free backup slot.
-		fs->log("Mounting filesystem for the first time or filesystem corrupted. Formatting...");
-		rocket_fs_format(fs);
-	}
-
-	fs->log("Filesystem mounted");
-}
-
-
-
-void rocket_fs_format(FileSystem* fs) {
-	fs->erase_subsector(0);    // Misc block
-	fs->erase_subsector(4096); // Master partition block
-
-	uint64_t magic = __generate_periodic(MAGIC_PERIOD);
-
-	fs_write64(fs, 0, magic);
-}
-
-void rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
-
-}
-
-Stream rocket_fs_open(FileSystem* fs, const char* file) {
-
-}
-
-Stream rocket_fs_close() {
-
-}

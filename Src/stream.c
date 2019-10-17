@@ -9,6 +9,7 @@
 
 
 static FileSystem* fs;
+static File* file;
 
 static bool file_open = false;
 
@@ -18,16 +19,17 @@ static uint32_t begin_address = 0;
 static uint32_t end_address = 0;
 
 
-void init_stream(Stream stream, FileSystem* filesystem, uint32_t address, uint32_t length, FileType type) {
+void init_stream(Stream stream, FileSystem* filesystem, File* source, uint32_t base_address) {
 	fs = filesystem;
-	read_address = address;
-	write_address = address;
-	begin_address = address;
-	end_address = address + length;
+	file = source;
+	read_address = base_address;
+	write_address = base_address;
+	begin_address = base_address;
+	end_address = base_address + file->length;
 
 	stream.close = &__close;
 
-	switch(type) {
+	switch(file->type) {
 	case RAW:
 		stream.read = &raw_read;
 		stream.read8 = &raw_read8;
@@ -43,7 +45,7 @@ void init_stream(Stream stream, FileSystem* filesystem, uint32_t address, uint32
 
 		break;
 	default:
-		// TODO Error handler: file type not supported
+		fs->log("Error: File type unsupported.");
 	}
 
 	file_open = true;
@@ -66,7 +68,7 @@ static void raw_read(uint8_t* buffer, uint32_t length) {
 		fs->read(read_address, buffer, length);
 		read_address += length;
 	} else {
-		fs->log("Error: End of file. Reading from the beginning of the file.");
+		fs->log("Error: End of file.");
 
 	}
 }
