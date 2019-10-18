@@ -125,6 +125,10 @@ void rfs_block_free(FileSystem* fs, uint16_t block_id) {
 	}
 }
 
+void rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length) {
+
+}
+
 
 /*
  * The relative time ranges from 0 to 16

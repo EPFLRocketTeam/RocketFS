@@ -21,4 +21,10 @@ typedef struct DataBlock {
 } DataBlock;
 
 
+void rfs_init_block_management(FileSystem* fs);
+uint16_t rfs_block_alloc(FileSystem* fs, FileType type);
+void rfs_block_free(FileSystem* fs, uint16_t block_id);
+void rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length);
+
+
 #endif /* INC_BLOCK_MANAGEMENT_H_ */

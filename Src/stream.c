@@ -6,6 +6,7 @@
  */
 
 #include "stream.h"
+#include "block_management.h"
 
 
 static FileSystem* fs;
@@ -56,6 +57,8 @@ static void __close() {
 static uint8_t coder[8]; // Used as encoder and decoder
 
 static void raw_read(uint8_t* buffer, uint32_t length) {
+	rfs_access_memory(fs, &read_address, length); // Transforms the write address (or fails if end of file) if we are at the end of a readable section
+
 	fs->read(read_address, buffer, length);
 	read_address += length;
 }
@@ -107,6 +110,8 @@ static uint64_t raw_read64() {
 }
 
 static void raw_write(uint8_t* buffer, uint32_t length) {
+	rfs_access_memory(fs, &write_address, length); // Transforms the write address (and alloc new blocks if necessary) if we are at the end of a writable section
+
 	fs->write(write_address, buffer, length);
 	write_address += length;
 }
