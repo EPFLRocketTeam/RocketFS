@@ -81,7 +81,7 @@ void rfs_init_block_management(FileSystem* fs) {
 uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
 	uint16_t oldest_block;
 
-	for(uint16_t block_id = 0; block_id < NUM_BLOCKS; block_id++) {
+	for(uint16_t block_id = PROTECTED_BLOCKS; block_id < NUM_BLOCKS; block_id++) {
 		uint8_t* meta = &(fs->partition_table[block_id]);
 
 		if(*meta == 0) {
@@ -90,6 +90,8 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
 			fs->partition_table_modified = true;
 
 			rfs_update_relative_time(fs);
+
+			fs->erase_subsector(fs->subsector_size * block_id); // Prepare for writing
 
 			return block_id;
 		} else if((*meta) & 0xF < oldest_block){
@@ -113,11 +115,22 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
 	return oldest_block;
 }
 
+
+void rfs_block_free(FileSystem* fs, uint16_t block_id) {
+	if(block_id >= PROTECTED_BLOCKS) {
+		fs->partition_table[block_id] = 0;
+		fs->partition_table_modified = true;
+	} else {
+		fs->log("Error: Cannot free a protected block");
+	}
+}
+
+
 /*
  * The relative time ranges from 0 to 16
  */
 static rfs_update_relative_time(FileSystem* fs) {
-	uint8_t anchor = fs->partition_table[0] >> 4; // Core block is used as anchor
+	uint8_t anchor = fs->partition_table[0] >> 4; // Core block meta is used as a time reference
 	uint8_t available_space = 16 - (fs->total_used_blocks * 16UL) / NUM_BLOCKS; // Ranges from 0 to 16
 
 	if(anchor > available_space) {
@@ -134,11 +147,6 @@ static rfs_decrease_relative_time(FileSystem* fs) {
 		}
 	}
 }
-
-void rfs_block_free(FileSystem* fs) {
-
-}
-
 
 /*
  * Utils

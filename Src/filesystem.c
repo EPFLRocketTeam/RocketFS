@@ -91,7 +91,8 @@ void rocket_fs_mount(FileSystem* fs) {
 		init_stream(&stream, fs, master_block);
 
 		for(uint32_t i = 0; i < NUM_BLOCKS; i++) {
-			fs->partition_table[i] = stream.read8();
+			// Reverse bits to increase the lifetime of NOR flash memories (do not do this if the targeted device is a NAND flash).
+			fs->partition_table[i] = ~stream.read8();
 		}
 
 		stream.close();
@@ -134,12 +135,12 @@ void rocket_fs_format(FileSystem* fs) {
 
 	stream.write8(0b00001111); // Core block (used as internal relative clock)
 	stream.write8(0b00001111); // Master partition block
-	// stream.write8(0b00001111); // Recovery partition block
-	// stream.write8(0b00001111); // Backup partition block 1
-	// stream.write8(0b00001111); // Backup partition block 2
-	// stream.write8(0b00001111); // Backup partition block 3
-	// stream.write8(0b00001111); // Backup partition block 4
-	// stream.write8(0b00001111); // Journal block
+	stream.write8(0b00001111); // Recovery partition block
+	stream.write8(0b00001111); // Backup partition block 1
+	stream.write8(0b00001111); // Backup partition block 2
+	stream.write8(0b00001111); // Backup partition block 3
+	stream.write8(0b00001111); // Backup partition block 4
+	stream.write8(0b00001111); // Journal block
 
 	stream.close();
 
@@ -149,10 +150,22 @@ void rocket_fs_format(FileSystem* fs) {
 }
 
 /*
- * Flushed the partition table
+ * Flushes the partition table
  */
 void rocket_fs_flush(FileSystem* fs) {
+	fs->erase_subsector(fs->subsector_size); // Erase the master block
 
+	Stream stream;
+	File master_block = { .identifier = "Master Partition Block", .type = RAW, .length = fs->subsector_size};
+
+	init_stream(&stream, fs, master_block);
+
+	for(uint32_t i = 0; i < NUM_BLOCKS; i++) {
+		// Reverse bits to increase the lifetime of NOR flash memories (do not do this if the targeted device is a NAND flash).
+		stream.write8(~fs->partition_table[i]);
+	}
+
+	stream.close();
 }
 
 /*

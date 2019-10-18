@@ -25,6 +25,7 @@
 #define BACKUP_MAGIC 0xC0FFEE
 #define NUM_BLOCKS 4096
 #define NUM_FILES 64
+#define PROTECTED_BLOCKS 8
 
 
 /*
@@ -83,7 +84,7 @@ void rocket_fs_bind(
 
 void rocket_fs_mount(FileSystem* fs);
 void rocket_fs_format(FileSystem* fs);
-void rocket_fs_flush(FileSystem* fs); // Flushed the partition table
+void rocket_fs_flush(FileSystem* fs); // Flushes the partition table
 void rocket_fs_newfile(FileSystem* fs, const char* name, FileType type);
 Stream rocket_fs_open(FileSystem* fs, const char* file);
 
