@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 #include "block_management.h"
+#include "stream.h"
 
 #define RFS_VERSION 15102019
 #define API_VERSION 20102019
@@ -19,14 +20,30 @@
 /*
  * FS-specific defines
  */
-#define CORRUPTION_THRESHOLD 8
+#define CORRUPTION_THRESHOLD 4
 #define MAGIC_PERIOD 7
 #define BACKUP_MAGIC 0xC0FFEE
+#define NUM_BLOCKS 4096
+#define NUM_FILES 64
 
 
 /*
  * API-specific defines
  */
+
+typedef enum FileType { EMPTY, RAW, ECC, CRC, LOW_REDUNDANCE, HIGH_REDUNDANCE, FOURIER_REDUNDANCE } FileType;
+
+// 32 bytes
+typedef struct File {
+	const char identifier[16];
+	uint32_t identifier_hash;
+	uint16_t first_block;
+	uint16_t last_block;
+	uint32_t length;
+	uint16_t used_blocks;
+	uint16_t reserved;
+} File;
+
 
 typedef struct FileSystem {
 	bool device_configured;
@@ -39,9 +56,10 @@ typedef struct FileSystem {
 	uint32_t sector_size;
 	uint32_t subsector_size;
 
-	uint64_t partition_table[64];
+	uint8_t partition_table[NUM_BLOCKS];
 	bool partition_table_modified;
-	DataBlock data_blocks[64];
+	DataBlock data_blocks[NUM_BLOCKS];
+	File files[NUM_FILES];
 
 	void (*read)(uint32_t address, uint8_t* buffer, uint32_t length);
 	void (*write)(uint32_t address, uint8_t* buffer, uint32_t length);
@@ -50,16 +68,6 @@ typedef struct FileSystem {
 
 	void (*log)(const char*);
 } FileSystem;
-
-
-typedef enum FileType { RAW, ECC, CRC, LOW_REDUNDANCE, HIGH_REDUNDANCE, FOURIER_REDUNDANCE } FileType;
-
-typedef struct File {
-	FileType type;
-	uint64_t length;
-	const char* identifier;
-} File;
-
 
 void rocket_fs_debug(FileSystem* fs, void (*logger)(const char*));
 void rocket_fs_device(FileSystem* fs, const char *id, uint32_t capacity, uint32_t sector_size, uint32_t subsector_size);

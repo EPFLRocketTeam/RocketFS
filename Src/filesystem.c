@@ -59,12 +59,16 @@ void rocket_fs_bind(
 }
 
 void rocket_fs_device(FileSystem* fs, const char *id, uint32_t capacity, uint32_t sector_size, uint32_t subsector_size) {
-	fs->id = id;
-	fs->addressable_space = capacity;
-	fs->sector_size = sector_size;
-	fs->subsector_size = subsector_size;
-	fs->device_configured = true;
-	fs->partition_table_modified = false;
+	if(subsector_size >= NUM_BLOCKS) {
+		fs->id = id;
+		fs->addressable_space = capacity;
+		fs->sector_size = sector_size;
+		fs->subsector_size = subsector_size;
+		fs->device_configured = true;
+		fs->partition_table_modified = false;
+	} else {
+		fs->log("Fatal: Device's sub-sector granularity is too high. Consider using using a device with higher subsector_size.");
+	}
 }
 
 void rocket_fs_mount(FileSystem* fs) {
@@ -74,8 +78,8 @@ void rocket_fs_mount(FileSystem* fs) {
 
 	fs->log("Mounting filesystem...");
 
-	File core_block = { .identifier = "Core Block", .type = RAW, .length = fs->subsector_size};
-	File master_block = { .identifier = "Master Partition Block", .type = RAW, .length = fs->subsector_size};
+	File core_block = { .identifier = "Core Block", .type = RAW, .length = fs->subsector_size };
+	File master_block = { .identifier = "Master Partition Block", .type = RAW, .length = fs->subsector_size };
 
 	Stream stream;
 	init_stream(&stream, fs, core_block);
@@ -86,18 +90,13 @@ void rocket_fs_mount(FileSystem* fs) {
 	if(__periodic_magic_match(MAGIC_PERIOD, magic)) {
 		init_stream(&stream, fs, master_block);
 
-		uint32_t num_blocks = fs->addressable_space / fs->subsector_size;
-		// Here we supposed a relatively low granularity, implying that num_blocks < subsector_size.
-
-		uint64_t partition_table[num_blocks];
-
-		for(uint32_t i = 0; i < num_blocks; i++) {
-			partition_table[i] = stream.read8();
+		for(uint32_t i = 0; i < NUM_BLOCKS; i++) {
+			fs->partition_table[i] = stream.read8();
 		}
 
-		fs->partition_table = partition_table;
-
 		stream.close();
+
+		rfs_populate_blocks(fs); // in block_management.c
 	} else {
 		// TODO (a) Check redundant magic number.
 		// TODO (b) Write corrupted partition to a free backup slot.

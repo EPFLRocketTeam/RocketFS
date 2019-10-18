@@ -30,7 +30,7 @@ typedef struct Stream {
 	void (*write64)(uint64_t data);
 } Stream;
 
-void init_stream(Stream stream, FileSystem* filesystem, uint32_t address, uint32_t length, FileType type);
+void init_stream(Stream stream, FileSystem* filesystem, uint32_t base_address, FileType type);
 
 static void __close();
 

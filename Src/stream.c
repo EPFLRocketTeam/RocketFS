@@ -9,27 +9,21 @@
 
 
 static FileSystem* fs;
-static File* file;
 
 static bool file_open = false;
 
 static uint32_t read_address = 0xFFFFFFFFL;
 static uint32_t write_address = 0xFFFFFFFFL;
-static uint32_t begin_address = 0;
-static uint32_t end_address = 0;
 
 
-void init_stream(Stream stream, FileSystem* filesystem, File* source, uint32_t base_address) {
+void init_stream(Stream stream, FileSystem* filesystem, uint32_t base_address, FileType type) {
 	fs = filesystem;
-	file = source;
 	read_address = base_address;
 	write_address = base_address;
-	begin_address = base_address;
-	end_address = base_address + file->length;
 
 	stream.close = &__close;
 
-	switch(file->type) {
+	switch(type) {
 	case RAW:
 		stream.read = &raw_read;
 		stream.read8 = &raw_read8;
@@ -55,8 +49,6 @@ static void __close() {
 	fs = 0;
 	read_address = 0xFFFFFFFFL;
 	write_address = 0xFFFFFFFFL;
-	begin_address = 0;
-	end_address = 0;
 	file_open = false;
 }
 
@@ -64,13 +56,8 @@ static void __close() {
 static uint8_t coder[8]; // Used as encoder and decoder
 
 static void raw_read(uint8_t* buffer, uint32_t length) {
-	if(read_address + length <= end_address) {
-		fs->read(read_address, buffer, length);
-		read_address += length;
-	} else {
-		fs->log("Error: End of file.");
-
-	}
+	fs->read(read_address, buffer, length);
+	read_address += length;
 }
 
 static uint8_t raw_read8() {
@@ -120,21 +107,8 @@ static uint64_t raw_read64() {
 }
 
 static void raw_write(uint8_t* buffer, uint32_t length) {
-	if(length >= end_address - write_address) {
-		fs->log("Error: Buffer length bigger than file size.");
-		return;
-	}
-
-	if(write_address + length <= end_address) {
-		fs->write(write_address, buffer, length);
-		write_address += length;
-	} else {
-		fs->log("Error: End of file. Overwriting the beginning of the file.");
-		uint32_t delta = end_address - write_address;
-		fs->write(write_address, buffer, delta);
-		fs->write(begin_address, buffer + delta, length - delta);
-		write_address = begin_address;
-	}
+	fs->write(write_address, buffer, length);
+	write_address += length;
 }
 
 static void raw_write8(uint64_t data) {
