@@ -132,13 +132,14 @@ void rocket_fs_format(FileSystem* fs) {
 
 	init_stream(&stream, fs, core_block);
 
-	stream.write8(0b00001111); // Core block contains raw data and cannot be overwritten.
-	stream.write8(0b00001111); // Master partition block contains raw data and cannot be overwritten.
-	stream.write8(0b00001110); // Recovery partition block contains raw data and can be overwritten in extreme cases.
-	stream.write8(0b00001110); // Backup partition block 1 contains raw data and can be overwritten in extreme cases.
-	stream.write8(0b00001110); // Backup partition block 2 contains raw data and can be overwritten in extreme cases.
-	stream.write8(0b00001100); // Backup partition block 3 contains raw data and can be overwritten when the device is almost full.
-	stream.write8(0b00001100); // Backup partition block 4 contains raw data and can be overwritten when the device is almost full.
+	stream.write8(0b00001111); // Core block (used as internal relative clock)
+	stream.write8(0b00001111); // Master partition block
+	// stream.write8(0b00001111); // Recovery partition block
+	// stream.write8(0b00001111); // Backup partition block 1
+	// stream.write8(0b00001111); // Backup partition block 2
+	// stream.write8(0b00001111); // Backup partition block 3
+	// stream.write8(0b00001111); // Backup partition block 4
+	// stream.write8(0b00001111); // Journal block
 
 	stream.close();
 
