@@ -111,8 +111,8 @@ void rocket_fs_mount(FileSystem* fs) {
 
 
 void rocket_fs_format(FileSystem* fs) {
-	File core_block = { .identifier = "Core Block", .type = RAW, .length = fs->subsector_size};
-	File master_block = { .identifier = "Master Partition Block", .type = RAW, .length = fs->subsector_size};
+	File core_block = { .identifier = "Core Block", .type = RAW, .length = fs->subsector_size };
+	File master_block = { .identifier = "Master Partition Block", .type = RAW, .length = fs->subsector_size };
 
 	fs->erase_subsector(0);    // Core block
 	fs->erase_subsector(fs->subsector_size); // Master partition block
@@ -133,6 +133,9 @@ void rocket_fs_format(FileSystem* fs) {
 
 	init_stream(&stream, fs, core_block);
 
+	/*
+	 * Blocks 0 to 7 are reserved anyways
+	 */
 	stream.write8(0b00001111); // Core block (used as internal relative clock)
 	stream.write8(0b00001111); // Master partition block
 	stream.write8(0b00001111); // Recovery partition block
@@ -156,7 +159,7 @@ void rocket_fs_flush(FileSystem* fs) {
 	fs->erase_subsector(fs->subsector_size); // Erase the master block
 
 	Stream stream;
-	File master_block = { .identifier = "Master Partition Block", .type = RAW, .length = fs->subsector_size};
+	File master_block = { .identifier = "Master Partition Block", .type = RAW, .length = fs->subsector_size };
 
 	init_stream(&stream, fs, master_block);
 
@@ -172,12 +175,12 @@ void rocket_fs_flush(FileSystem* fs) {
  * Names at most 16 characters long.
  */
 void rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
-	File file = { .identifier = name, .type = type, .length = fs->subsector_size};
+	File file = { .identifier = name, .type = type, .length = fs->subsector_size };
 }
 
 
 Stream rocket_fs_open(FileSystem* fs, const char* name) {
-	File file = { .identifier = name, .type = RAW, .length = fs->subsector_size};
+	File file = { .identifier = name, .type = RAW, .length = fs->subsector_size };
 	Stream stream;
 	init_stream(&stream, fs, &file);
 	return stream;

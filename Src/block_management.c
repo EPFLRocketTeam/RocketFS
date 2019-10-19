@@ -16,7 +16,7 @@ void rfs_init_block_management(FileSystem* fs) {
 	/*
 	 * First pass: Detect all files.
 	 */
-	for(uint16_t block_id = 0; block_id < NUM_BLOCKS; block_id++) {
+	for(uint16_t block_id = PROTECTED_BLOCKS; block_id < NUM_BLOCKS; block_id++) {
 		uint8_t meta_data = fs->partition_table[block_id];
 
 		if(meta_data > 0) {
