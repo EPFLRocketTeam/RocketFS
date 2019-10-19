@@ -7,6 +7,8 @@
 
 #include "stream.h"
 
+#include "block_management.h"
+
 
 static FileSystem* fs;
 
@@ -80,7 +82,7 @@ static void __close() {
 static uint8_t coder[8]; // Used as encoder and decoder
 
 static void raw_read(uint8_t* buffer, uint32_t length) {
-	rfs_access_memory(fs, &read_address, length); // Transforms the write address (or fails if end of file) if we are at the end of a readable section
+	rfs_access_memory(fs, &read_address, length, READ); // Transforms the write address (or fails if end of file) if we are at the end of a readable section
 
 	fs->read(read_address, buffer, length);
 	read_address += length;
@@ -91,7 +93,7 @@ static uint8_t raw_read8() {
 	return coder[0];
 }
 
-static uint64_t raw_read16() {
+static uint16_t raw_read16() {
 	raw_read(coder, 2);
 
 	uint64_t composition = 0ULL;
@@ -133,30 +135,30 @@ static uint64_t raw_read64() {
 }
 
 static void raw_write(uint8_t* buffer, uint32_t length) {
-	rfs_access_memory(fs, &write_address, length); // Transforms the write address (and alloc new blocks if necessary) if we are at the end of a writable section
+	rfs_access_memory(fs, &write_address, length, WRITE); // Transforms the write address (and alloc new blocks if necessary) if we are at the end of a writable section
 
 	fs->write(write_address, buffer, length);
 	write_address += length;
 }
 
-static void raw_write8(uint64_t data) {
-	raw_write64(coder, &data);
+static void raw_write8(uint8_t data) {
+	raw_write(&data, 1);
 }
 
-static void raw_write16(uint64_t data) {
+static void raw_write16(uint16_t data) {
 	coder[0] = data;
 	coder[1] = data >> 8;
 
-	raw_write64(coder, 2);
+	raw_write(coder, 2);
 }
 
-static void raw_write32(uint64_t data) {
+static void raw_write32(uint32_t data) {
 	coder[0] = data;
 	coder[1] = data >> 8;
 	coder[2] = data >> 16;
 	coder[3] = data >> 24;
 
-	raw_write64(coder, 4);
+	raw_write(coder, 4);
 }
 
 static void raw_write64(uint64_t data) {
@@ -169,5 +171,5 @@ static void raw_write64(uint64_t data) {
 	coder[6] = data >> 48;
 	coder[7] = data >> 56;
 
-	raw_write64(coder, 8);
+	raw_write(coder, 8);
 }

@@ -11,15 +11,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "block_management.h"
 #include "file.h"
-#include "stream.h"
 
-
-
-
-#define RFS_VERSION 15102019
-#define API_VERSION 20102019
 
 /*
  * FS-specific defines
@@ -28,6 +21,16 @@
 #define NUM_FILES 64
 #define PROTECTED_BLOCKS 8
 
+
+
+/*
+ * Since stm32f446 only has 128KB memory, we cannot afford more than 16-bytes data-blocks...
+ */
+typedef struct DataBlock {
+	uint16_t successor;
+} DataBlock;
+
+typedef struct Stream Stream;
 
 
 typedef struct FileSystem {
@@ -54,7 +57,10 @@ typedef struct FileSystem {
 	void (*log)(const char*);
 } FileSystem;
 
+
 typedef enum StreamMode { OVERWRITE, APPEND } StreamMode;
+
+
 
 
 void rocket_fs_debug(FileSystem* fs, void (*logger)(const char*));
@@ -70,7 +76,7 @@ void rocket_fs_bind(
 void rocket_fs_mount(FileSystem* fs);
 void rocket_fs_format(FileSystem* fs);
 void rocket_fs_flush(FileSystem* fs); // Flushes the partition table
-void rocket_fs_newfile(FileSystem* fs, const char* name, FileType type);
+File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type);
 void rocket_fs_delfile(FileSystem* fs, File* file);
 File* rocket_fs_getfile(FileSystem* fs, const char* name);
 bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mode);

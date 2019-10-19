@@ -9,13 +9,14 @@
 #define INC_FILE_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 
 typedef enum FileType { EMPTY, RAW, ECC, CRC, LOW_REDUNDANCE, HIGH_REDUNDANCE, FOURIER_REDUNDANCE } FileType;
 
 // 32 bytes
 typedef struct File {
-	const char filename[16];
+	char filename[16];
 	uint32_t hash;
 	uint16_t first_block;
 	uint16_t last_block;
@@ -25,6 +26,8 @@ typedef struct File {
 } File;
 
 
+void filename_copy(const char* source, char* target);
+bool filename_equals(const char* first, const char* second);
 
 uint32_t hash_filename(const char* identifier);
 

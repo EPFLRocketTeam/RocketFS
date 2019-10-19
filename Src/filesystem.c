@@ -7,6 +7,10 @@
 
 #include "filesystem.h"
 
+#include "block_management.h"
+#include "file.h"
+#include "stream.h"
+
 /*
  * FileSystem structure
  *
@@ -40,9 +44,6 @@
 /*
  * Utility functions
  */
-static void __standardify(const char* source, char* target);
-static bool __filename_equals(const char* first, const char* second);
-
 static uint8_t __clamp(uint8_t input, uint8_t start, uint8_t end);
 static uint64_t __signed_shift(int64_t input, int8_t amount);
 static uint64_t __generate_periodic(uint8_t period);
@@ -63,13 +64,11 @@ void rocket_fs_bind(
 	FileSystem* fs,
 	void (*read)(uint32_t, uint8_t*, uint32_t),
 	void (*write)(uint32_t, uint8_t*, uint32_t),
-	void (*erase_subsector)(uint32_t),
-	void (*erase_sector)(uint32_t)
+	void (*erase_block)(uint32_t)
 ) {
 	fs->read = read;
 	fs->write = write;
-	fs->erase_block = erase_subsector;
-	fs->erase_sector = erase_sector;
+	fs->erase_block = erase_block;
 	fs->io_bound = true;
 }
 
@@ -182,7 +181,7 @@ void rocket_fs_flush(FileSystem* fs) {
  */
 File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
 	char filename[16] = { 0 };
-	__standardify(name, filename);
+	filename_copy(name, filename);
 
 	File* file;
 	uint32_t hash = hash_filename(filename);
@@ -191,7 +190,7 @@ File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
 	for(uint8_t file_id = bucket; file_id < bucket + NUM_FILES; file_id++) {
 		file = &(fs->files[file_id % NUM_FILES]);
 
-		if(__filename_equals(file->filename, name)) {
+		if(filename_equals(file->filename, name)) {
 			fs->log("File with the given filename already exists:");
 			fs->log(name);
 			return 0;
@@ -201,12 +200,12 @@ File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
 			// Yey! We found an available file identifier
 
 			uint16_t first_block_id = rfs_block_alloc(fs, type);
-			rfs_block_write_header(fs, first_block_id, file_id);
-			uint32_t address = rfs_get_block_base_address(first_block_id);
+			rfs_block_write_header(fs, first_block_id, file_id, 0);
+			uint32_t address = rfs_get_block_base_address(fs, first_block_id);
 
 			fs->write(address, (uint8_t*) filename, 16); // Write the filename
 
-			file->filename = filename;
+			filename_copy(filename, file->filename);
 			file->hash = hash;
 			file->first_block = first_block_id;
 			file->last_block = first_block_id;
@@ -225,11 +224,10 @@ void rocket_fs_delfile(FileSystem* fs, File* file) {
 	uint16_t block_id = file->first_block;
 
 	while(block_id) {
-		rfs_block_free(block_id);
+		rfs_block_free(fs, block_id);
 		block_id = fs->data_blocks[block_id].successor;
 	}
 
-	file->filename = 0;
 	file->hash = 0;
 	file->first_block = 0;
 	file->last_block = 0;
@@ -239,7 +237,7 @@ void rocket_fs_delfile(FileSystem* fs, File* file) {
 
 File* rocket_fs_getfile(FileSystem* fs, const char* name) {
 	char filename[16] = { 0 };
-	__standardify(name, filename);
+	filename_copy(name, filename);
 
 	File* file;
 	uint32_t hash = hash_filename(filename);
@@ -248,7 +246,7 @@ File* rocket_fs_getfile(FileSystem* fs, const char* name) {
 	for(uint8_t file_id = bucket; file_id < bucket + NUM_FILES; file_id++) {
 		file = &(fs->files[file_id % NUM_FILES]);
 
-		if(__filename_equals(file->filename, name)) {
+		if(filename_equals(file->filename, name)) {
 			return file;
 		}
 	}
@@ -261,24 +259,25 @@ File* rocket_fs_getfile(FileSystem* fs, const char* name) {
 
 
 bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mode) {
-
-	Stream auxiliary;
-
 	switch(mode) {
-	case OVERWRITE:
+	case OVERWRITE: {
 		uint16_t first_block = file->first_block;
-		uint32_t base_address = rfs_get_base_address(first_block);
+		uint32_t base_address = rfs_get_block_base_address(fs, first_block);
 
 		FileType type = fs->partition_table[first_block] >> 4;
 
 		return init_stream(stream, fs, base_address, type);
-	case APPEND:
+	}
+
+	case APPEND: {
 		uint16_t last_block = file->last_block;
-		uint32_t base_address = rfs_get_base_address(file->last_block) + rfs_compute_block_length(file->last_block);
+		uint32_t base_address = rfs_get_block_base_address(fs, file->last_block) + rfs_compute_block_length(fs, file->last_block);
 
 		FileType type = fs->partition_table[last_block] >> 4;
 
 		return init_stream(stream, fs, base_address, type);
+	}
+
 	default:
 		fs->log("Unsupported stream mode");
 		return false;
@@ -288,28 +287,6 @@ bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mod
 }
 
 
-/*
- * Filename utility functions
- */
-static void __standardify(const char* source, char* target) {
-	for(uint8_t i = 0; i < 15; i++) {
-		if(source[i] != '\0') {
-			target[i] = source[i];
-		} else {
-			break;
-		}
-	}
-}
-
-static bool __filename_equals(const char* first, const char* second) {
-	for(uint8_t i = 0; i < 16; i++) {
-		if(first[i] != second[i]) {
-			return false;
-		}
-	}
-
-	return true;
-}
 
 /*
  * Corruption utility functions

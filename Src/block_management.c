@@ -7,6 +7,8 @@
 
 #include "block_management.h"
 
+#include "file.h"
+#include "stream.h"
 
 
 #define BLOCK_MAGIC_NUMBER 0xC0FFEE42
@@ -21,17 +23,18 @@
 /*
  * Non-exported function prototypes
  */
-static void rfs_block_write_header(FileSystem* fs, uint16_t block_id, uint16_t file_id, uint16_t predecessor);
 static void rfs_block_update_usage_table(FileSystem* fs, uint32_t write_begin, uint32_t write_end);
 
-static rfs_update_relative_time(FileSystem* fs);
-static rfs_decrease_relative_time(FileSystem* fs);
-static rfs_update_relative_time(FileSystem* fs);
+static void rfs_update_relative_time(FileSystem* fs);
+static void rfs_decrease_relative_time(FileSystem* fs);
+static void rfs_update_relative_time(FileSystem* fs);
+
+static uint32_t __compute_block_length(uint64_t usage_table);
 
 
 
 void rfs_init_block_management(FileSystem* fs) {
-	uint8_t identifier[16];
+	char identifier[16];
 	Stream stream;
 	File* selected_file;
 
@@ -44,26 +47,25 @@ void rfs_init_block_management(FileSystem* fs) {
 		if(meta_data) {
 			uint32_t address = fs->block_size * block_id;
 
-			init_stream(stream, fs, address, RAW);
+			init_stream(&stream, fs, address, RAW);
 
 			uint32_t magic = stream.read32();
 			uint16_t file_id = stream.read16();
 			uint16_t predecessor = stream.read16();
-			uint64_t usage_table = stream.read64();
 
 			if(magic != BLOCK_MAGIC_NUMBER) {
 				fs->log("Warning: Invalid magic number");
 			}
 
 			if(!predecessor) {
-				stream.read(identifier, 16);
+				stream.read((uint8_t*) identifier, 16);
 
 				selected_file = &(fs->files[file_id]);
 
 				uint32_t hash = hash_filename(identifier);
 
 				selected_file->first_block = block_id;
-				selected_file->filename = identifier;
+				filename_copy(identifier, selected_file->filename);
 				selected_file->hash = hash;
 				selected_file->used_blocks = 1;
 				selected_file->length = 0;
@@ -85,7 +87,7 @@ void rfs_init_block_management(FileSystem* fs) {
 		uint32_t block_id = selected_file->first_block;
 
 		while(block_id) {
-			selected_file->length += rfs_compute_block_length(block_id);
+			selected_file->length += rfs_compute_block_length(fs, block_id);
 			selected_file->used_blocks++;
 			selected_file->last_block = block_id;
 
@@ -125,7 +127,7 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
 			fs->erase_block(fs->block_size * block_id); // Prepare for writing
 
 			return block_id;
-		} else if((*meta) & 0xF < oldest_block){
+		} else if(((*meta) & 0xF) < oldest_block){
 			oldest_block = block_id;
 		}
 	}
@@ -133,7 +135,7 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
 	/* Device is full! Realloc oldest block. */
 	uint8_t* oldest_block_meta = &(fs->partition_table[oldest_block]);
 
-	if(*oldest_block_meta & 0xF > 0) { // Some correction for a better relative time repartition
+	if((*oldest_block_meta & 0xF) > 0) { // Some correction for a better relative time repartition
 		rfs_decrease_relative_time(fs);
 	}
 
@@ -178,14 +180,14 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 			uint16_t block_id = *address / fs->block_size;
 			uint16_t successor_block = fs->data_blocks[block_id].successor;
 
-			if(successor_block > 0) {
+			if(successor_block) {
 				*address = successor_block * fs->block_size + BLOCK_HEADER_SIZE;
 			} else {
 				switch(access_type) {
 				case READ:
 					return false; // End of file
-				case WRITE:
-					uint8_t file_type = fs->partition_table[block_id] >> 4;
+				case WRITE: {
+					FileType file_type = (FileType) (fs->partition_table[block_id] >> 4);
 					uint16_t new_block_id = rfs_block_alloc(fs, file_type); // Allocate a new block
 
 					Stream stream;
@@ -193,7 +195,7 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 					uint16_t file_id = stream.read16();
 					stream.close();
 
-					rfs_block_write_header(fs, file_id, block_id);
+					rfs_block_write_header(fs, new_block_id, file_id, block_id);
 
 					File* file = &(fs->files[file_id]);
 
@@ -202,6 +204,7 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 					file->length += length;
 
 					break;
+				}
 				default:
 					return false; // Not implemented
 				}
@@ -209,7 +212,7 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 		}
 
 		if(access_type == WRITE) {
-			rfs_block_update_usage_table(*address, *address + length);
+			rfs_block_update_usage_table(fs, *address, *address + length);
 		}
 
 		return true;
@@ -266,9 +269,9 @@ uint32_t rfs_get_block_base_address(FileSystem* fs, uint16_t block_id) {
 /*
  * Header update functions
  */
-static void rfs_block_write_header(FileSystem* fs, uint16_t block_id, uint16_t file_id, uint16_t predecessor) {
+void rfs_block_write_header(FileSystem* fs, uint16_t block_id, uint16_t file_id, uint16_t predecessor) {
 	Stream stream;
-	init_stream(stream, fs, block_id * fs->block_size, RAW);
+	init_stream(&stream, fs, block_id * fs->block_size, RAW);
 
 	stream.write32(BLOCK_MAGIC_NUMBER);
 	stream.write16(file_id);
@@ -312,7 +315,7 @@ static void rfs_block_update_usage_table(FileSystem* fs, uint32_t write_begin, u
  * The relative time ranges from 0 to 16 and describes more or less the age of a block.
  * Birth age is 14, greatest age is 0.
  */
-static rfs_update_relative_time(FileSystem* fs) {
+static void rfs_update_relative_time(FileSystem* fs) {
 	uint8_t anchor = fs->partition_table[0] & 0xF; // Core block meta is used as a time reference
 	uint8_t available_space = 16 - (fs->total_used_blocks * 16UL) / NUM_BLOCKS; // Ranges from 0 to 16
 
@@ -321,8 +324,8 @@ static rfs_update_relative_time(FileSystem* fs) {
 	}
 }
 
-static rfs_decrease_relative_time(FileSystem* fs) {
-	for(uint8_t block_id = 0; block_id < NUM_BLOCKS; block_id++) {
+static void rfs_decrease_relative_time(FileSystem* fs) {
+	for(uint16_t block_id = 0; block_id < NUM_BLOCKS; block_id++) {
 		uint8_t* meta = &(fs->partition_table[block_id]);
 
 		if(*meta > 0) {
