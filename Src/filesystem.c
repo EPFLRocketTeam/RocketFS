@@ -241,7 +241,8 @@ void rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mod
 		break;
 	case APPEND:
 		uint32_t address = rfs_get_base_address(file->last_block);
-		// TODO: Finish implementing this stream mode
+		address += rfs_compute_block_length(file->last_block);
+		init_stream(stream, fs, address, type);
 		break;
 	default:
 		fs->log("Unsupported stream mode");

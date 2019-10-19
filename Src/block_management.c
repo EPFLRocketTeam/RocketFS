@@ -73,16 +73,12 @@ void rfs_init_block_management(FileSystem* fs) {
 		if(first_block > 0) {
 			DataBlock block = fs->data_blocks[first_block];
 
-			while((block = block.successor) > 0) {
-				uint32_t address = block * fs->block_size;
-
-				init_stream(stream, fs, address + 8, RAW); // Skip the file id and predecessor block id
-				uint64_t usage_table = stream.read64();
-				stream.close();
-
-				selected_file->length += __compute_block_length(usage_table);
+			while(block.successor > 0) {
+				selected_file->length += rfs_compute_block_length(block.successor);
 				selected_file->used_blocks++;
 				selected_file->last_block = block;
+
+				block = fs->data_blocks[block.successor];
 			}
 		}
 	}
@@ -138,6 +134,17 @@ void rfs_block_free(FileSystem* fs, uint16_t block_id) {
 	} else {
 		fs->log("Error: Cannot free a protected block");
 	}
+}
+
+uint32_t rfs_compute_block_length(FileSystem* fs, uint16_t block_id) {
+	Stream stream;
+	uint32_t address = block_id * fs->block_size;
+
+	init_stream(&stream, fs, address + 8, RAW); // Skip the file id and predecessor block id
+	uint64_t usage_table = stream.read64();
+	stream.close();
+
+	return __compute_block_length(usage_table);
 }
 
 uint32_t rfs_get_block_base_address(FileSystem* fs, uint16_t block_id) {
