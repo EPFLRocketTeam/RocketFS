@@ -15,15 +15,15 @@
 #include "file.h"
 #include "stream.h"
 
+
+
+
 #define RFS_VERSION 15102019
 #define API_VERSION 20102019
 
 /*
  * FS-specific defines
  */
-#define CORRUPTION_THRESHOLD 4
-#define MAGIC_PERIOD 7
-#define BACKUP_MAGIC 0xC0FFEE
 #define NUM_BLOCKS 4096
 #define NUM_FILES 64
 #define PROTECTED_BLOCKS 8
@@ -71,14 +71,9 @@ void rocket_fs_mount(FileSystem* fs);
 void rocket_fs_format(FileSystem* fs);
 void rocket_fs_flush(FileSystem* fs); // Flushes the partition table
 void rocket_fs_newfile(FileSystem* fs, const char* name, FileType type);
-Stream rocket_fs_open(FileSystem* fs, const char* file);
-
-/* STATIC FUNCTIONS */
-static uint8_t __clamp(uint8_t input, uint8_t start, uint8_t end);
-static uint64_t __signed_shift(int64_t input, int8_t amount);
-static uint64_t __generate_periodic(uint8_t period);
-static bool __periodic_magic_match(uint8_t period, uint64_t testable_magic);
-static void __no_log(const char* _);
+void rocket_fs_delfile(FileSystem* fs, File* file);
+File* rocket_fs_getfile(FileSystem* fs, const char* name);
+bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mode);
 
 
 

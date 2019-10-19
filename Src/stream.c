@@ -16,37 +16,55 @@ static uint32_t read_address = 0xFFFFFFFFL;
 static uint32_t write_address = 0xFFFFFFFFL;
 
 
-void init_stream(Stream stream, FileSystem* filesystem, uint32_t base_address, FileType type) {
+static void __close();
+
+static void     raw_read(uint8_t* buffer, uint32_t length);
+static uint8_t  raw_read8();
+static uint16_t raw_read16();
+static uint32_t raw_read32();
+static uint64_t raw_read64();
+
+static void raw_write(uint8_t* buffer, uint32_t length);
+static void raw_write8(uint8_t data);
+static void raw_write16(uint16_t data);
+static void raw_write32(uint32_t data);
+static void raw_write64(uint64_t data);
+
+
+bool init_stream(Stream* stream, FileSystem* filesystem, uint32_t base_address, FileType type) {
 	if(!file_open) {
 		fs = filesystem;
 		read_address = base_address;
 		write_address = base_address;
 
-		stream.close = &__close;
+		stream->close = &__close;
 
 		switch(type) {
 		case RAW:
-			stream.read = &raw_read;
-			stream.read8 = &raw_read8;
-			stream.read16 = &raw_read16;
-			stream.read32 = &raw_read32;
-			stream.read64 = &raw_read64;
+			stream->read = &raw_read;
+			stream->read8 = &raw_read8;
+			stream->read16 = &raw_read16;
+			stream->read32 = &raw_read32;
+			stream->read64 = &raw_read64;
 
-			stream.write = &raw_write;
-			stream.write8 = &raw_write8;
-			stream.write16 = &raw_write16;
-			stream.write32 = &raw_write32;
-			stream.write64 = &raw_write64;
+			stream->write = &raw_write;
+			stream->write8 = &raw_write8;
+			stream->write16 = &raw_write16;
+			stream->write32 = &raw_write32;
+			stream->write64 = &raw_write64;
 
 			break;
 		default:
 			fs->log("Error: File type unsupported.");
-			return;
+			return false;
 		}
 
 		file_open = true;
+
+		return true;
 	} else {
 		fs->log("Error: Another file is already open.");
+		return false;
 	}
 
 }

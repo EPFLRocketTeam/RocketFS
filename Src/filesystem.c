@@ -33,6 +33,22 @@
  * Block 4095: Reserved (GENTLE_TEST for flash memory)
  */
 
+#define CORRUPTION_THRESHOLD 4
+#define MAGIC_PERIOD 7
+#define BACKUP_MAGIC 0xC0FFEE
+
+/*
+ * Utility functions
+ */
+static void __standardify(const char* source, char* target);
+static bool __filename_equals(const char* first, const char* second);
+
+static uint8_t __clamp(uint8_t input, uint8_t start, uint8_t end);
+static uint64_t __signed_shift(int64_t input, int8_t amount);
+static uint64_t __generate_periodic(uint8_t period);
+static bool __periodic_magic_match(uint8_t period, uint64_t testable_magic);
+static void __no_log(const char* _);
+
 /*
  * FileSystem functions
  */
@@ -205,7 +221,23 @@ File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
 	return 0;
 }
 
-File* rocket_fs_file(FileSystem* fs, const char* name) {
+void rocket_fs_delfile(FileSystem* fs, File* file) {
+	uint16_t block_id = file->first_block;
+
+	while(block_id) {
+		rfs_block_free(block_id);
+		block_id = fs->data_blocks[block_id].successor;
+	}
+
+	file->filename = 0;
+	file->hash = 0;
+	file->first_block = 0;
+	file->last_block = 0;
+	file->length = 0;
+	file->used_blocks = 0;
+}
+
+File* rocket_fs_getfile(FileSystem* fs, const char* name) {
 	char filename[16] = { 0 };
 	__standardify(name, filename);
 
@@ -228,32 +260,38 @@ File* rocket_fs_file(FileSystem* fs, const char* name) {
 }
 
 
-void rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mode) {
-	uint16_t first_block = file->first_block;
-	uint32_t base_address = rfs_get_base_address(first_block);
-	FileType type = fs->partition_table[first_block] >> 4;
+bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mode) {
 
 	Stream auxiliary;
 
 	switch(mode) {
 	case OVERWRITE:
-		init_stream(stream, fs, base_address, type);
-		break;
+		uint16_t first_block = file->first_block;
+		uint32_t base_address = rfs_get_base_address(first_block);
+
+		FileType type = fs->partition_table[first_block] >> 4;
+
+		return init_stream(stream, fs, base_address, type);
 	case APPEND:
-		uint32_t address = rfs_get_base_address(file->last_block);
-		address += rfs_compute_block_length(file->last_block);
-		init_stream(stream, fs, address, type);
-		break;
+		uint16_t last_block = file->last_block;
+		uint32_t base_address = rfs_get_base_address(file->last_block) + rfs_compute_block_length(file->last_block);
+
+		FileType type = fs->partition_table[last_block] >> 4;
+
+		return init_stream(stream, fs, base_address, type);
 	default:
 		fs->log("Unsupported stream mode");
+		return false;
 	}
+
+	return true;
 }
 
 
 /*
  * Filename utility functions
  */
-void __standardify(const char* source, char* target) {
+static void __standardify(const char* source, char* target) {
 	for(uint8_t i = 0; i < 15; i++) {
 		if(source[i] != '\0') {
 			target[i] = source[i];
@@ -263,7 +301,7 @@ void __standardify(const char* source, char* target) {
 	}
 }
 
-bool __filename_equals(const char* first, const char* second) {
+static bool __filename_equals(const char* first, const char* second) {
 	for(uint8_t i = 0; i < 16; i++) {
 		if(first[i] != second[i]) {
 			return false;

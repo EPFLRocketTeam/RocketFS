@@ -5,7 +5,7 @@
  *      Author: Arion
  */
 
-
+#include "file.h"
 
 
 uint32_t hash_filename(const char* name) {

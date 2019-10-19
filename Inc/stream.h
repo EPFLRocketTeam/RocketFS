@@ -9,6 +9,7 @@
 #define INC_STREAM_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "block_management.h"
 #include "filesystem.h"
@@ -31,20 +32,6 @@ typedef struct Stream {
 	void (*write64)(uint64_t data);
 } Stream;
 
-void init_stream(Stream stream, FileSystem* filesystem, uint32_t base_address, FileType type);
-
-static void __close();
-
-static void     raw_read(uint8_t* buffer, uint32_t length);
-static uint8_t  raw_read8();
-static uint16_t raw_read16();
-static uint32_t raw_read32();
-static uint64_t raw_read64();
-
-static void raw_write(uint8_t* buffer, uint32_t length);
-static void raw_write8(uint8_t data);
-static void raw_write16(uint16_t data);
-static void raw_write32(uint32_t data);
-static void raw_write64(uint64_t data);
+bool init_stream(Stream* stream, FileSystem* filesystem, uint32_t base_address, FileType type);
 
 #endif /* INC_STREAM_H_ */
