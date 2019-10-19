@@ -6,7 +6,6 @@
  */
 
 #include "stream.h"
-#include "block_management.h"
 
 
 static FileSystem* fs;
@@ -18,32 +17,38 @@ static uint32_t write_address = 0xFFFFFFFFL;
 
 
 void init_stream(Stream stream, FileSystem* filesystem, uint32_t base_address, FileType type) {
-	fs = filesystem;
-	read_address = base_address;
-	write_address = base_address;
+	if(!file_open) {
+		fs = filesystem;
+		read_address = base_address;
+		write_address = base_address;
 
-	stream.close = &__close;
+		stream.close = &__close;
 
-	switch(type) {
-	case RAW:
-		stream.read = &raw_read;
-		stream.read8 = &raw_read8;
-		stream.read16 = &raw_read16;
-		stream.read32 = &raw_read32;
-		stream.read64 = &raw_read64;
+		switch(type) {
+		case RAW:
+			stream.read = &raw_read;
+			stream.read8 = &raw_read8;
+			stream.read16 = &raw_read16;
+			stream.read32 = &raw_read32;
+			stream.read64 = &raw_read64;
 
-		stream.write = &raw_write;
-		stream.write8 = &raw_write8;
-		stream.write16 = &raw_write16;
-		stream.write32 = &raw_write32;
-		stream.write64 = &raw_write64;
+			stream.write = &raw_write;
+			stream.write8 = &raw_write8;
+			stream.write16 = &raw_write16;
+			stream.write32 = &raw_write32;
+			stream.write64 = &raw_write64;
 
-		break;
-	default:
-		fs->log("Error: File type unsupported.");
+			break;
+		default:
+			fs->log("Error: File type unsupported.");
+			return;
+		}
+
+		file_open = true;
+	} else {
+		fs->log("Error: Another file is already open.");
 	}
 
-	file_open = true;
 }
 
 static void __close() {

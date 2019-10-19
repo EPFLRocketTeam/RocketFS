@@ -6,7 +6,6 @@
  */
 
 #include "filesystem.h"
-#include "stream.h"
 
 /*
  * FileSystem structure
@@ -53,17 +52,16 @@ void rocket_fs_bind(
 ) {
 	fs->read = read;
 	fs->write = write;
-	fs->erase_subsector = erase_subsector;
+	fs->erase_block = erase_subsector;
 	fs->erase_sector = erase_sector;
 	fs->io_bound = true;
 }
 
-void rocket_fs_device(FileSystem* fs, const char *id, uint32_t capacity, uint32_t sector_size, uint32_t subsector_size) {
-	if(subsector_size >= NUM_BLOCKS) {
+void rocket_fs_device(FileSystem* fs, const char *id, uint32_t capacity, uint32_t block_size) {
+	if(block_size >= NUM_BLOCKS) {
 		fs->id = id;
 		fs->addressable_space = capacity;
-		fs->sector_size = sector_size;
-		fs->subsector_size = subsector_size;
+		fs->block_size = block_size;
 		fs->device_configured = true;
 		fs->partition_table_modified = false;
 	} else {
@@ -78,17 +76,14 @@ void rocket_fs_mount(FileSystem* fs) {
 
 	fs->log("Mounting filesystem...");
 
-	File core_block = { .identifier = "Core Block", .type = RAW, .length = fs->subsector_size };
-	File master_block = { .identifier = "Master Partition Block", .type = RAW, .length = fs->subsector_size };
-
 	Stream stream;
-	init_stream(&stream, fs, core_block);
+	init_stream(&stream, fs, 0, RAW);
 
 	uint64_t magic = stream.read64();
 	stream.close();
 
 	if(__periodic_magic_match(MAGIC_PERIOD, magic)) {
-		init_stream(&stream, fs, master_block);
+		init_stream(&stream, fs, fs->block_size, RAW);
 
 		for(uint32_t i = 0; i < NUM_BLOCKS; i++) {
 			// Reverse bits to increase the lifetime of NOR flash memories (do not do this if the targeted device is a NAND flash).
@@ -97,7 +92,7 @@ void rocket_fs_mount(FileSystem* fs) {
 
 		stream.close();
 
-		rfs_populate_blocks(fs); // in block_management.c
+		rfs_init_block_management(fs); // in block_management.c
 	} else {
 		// TODO (a) Check redundant magic number.
 		// TODO (b) Write corrupted partition to a free backup slot.
@@ -111,17 +106,13 @@ void rocket_fs_mount(FileSystem* fs) {
 
 
 void rocket_fs_format(FileSystem* fs) {
-	File core_block = { .identifier = "Core Block", .type = RAW, .length = fs->subsector_size };
-	File master_block = { .identifier = "Master Partition Block", .type = RAW, .length = fs->subsector_size };
-
-	fs->erase_subsector(0);    // Core block
-	fs->erase_subsector(fs->subsector_size); // Master partition block
+	fs->erase_block(0);    // Core block
+	fs->erase_block(fs->block_size); // Master partition block
 
 	uint64_t magic = __generate_periodic(MAGIC_PERIOD);
 
 	Stream stream;
-
-	init_stream(&stream, fs, core_block);
+	init_stream(&stream, fs, 0, RAW);
 
 	stream.write64(magic);
 
@@ -131,7 +122,7 @@ void rocket_fs_format(FileSystem* fs) {
 
 	stream.close();
 
-	init_stream(&stream, fs, core_block);
+	init_stream(&stream, fs, fs->block_size, RAW);
 
 	/*
 	 * Blocks 0 to 7 are reserved anyways
@@ -156,12 +147,10 @@ void rocket_fs_format(FileSystem* fs) {
  * Flushes the partition table
  */
 void rocket_fs_flush(FileSystem* fs) {
-	fs->erase_subsector(fs->subsector_size); // Erase the master block
+	fs->erase_block(fs->block_size); // Erase the master partition block
 
 	Stream stream;
-	File master_block = { .identifier = "Master Partition Block", .type = RAW, .length = fs->subsector_size };
-
-	init_stream(&stream, fs, master_block);
+	init_stream(&stream, fs, fs->block_size, RAW);
 
 	for(uint32_t i = 0; i < NUM_BLOCKS; i++) {
 		// Reverse bits to increase the lifetime of NOR flash memories (do not do this if the targeted device is a NAND flash).
@@ -172,21 +161,116 @@ void rocket_fs_flush(FileSystem* fs) {
 }
 
 /*
- * Names at most 16 characters long.
+ * Names at most 15 characters long.
+ * Storing file names in a hashtable.
  */
-void rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
-	File file = { .identifier = name, .type = type, .length = fs->subsector_size };
+File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
+	char filename[16] = { 0 };
+	__standardify(name, filename);
+
+	File* file;
+	uint32_t hash = hash_filename(filename);
+	uint8_t bucket = hash % NUM_FILES;
+
+	for(uint8_t file_id = bucket; file_id < bucket + NUM_FILES; file_id++) {
+		file = &(fs->files[file_id % NUM_FILES]);
+
+		if(__filename_equals(file->filename, name)) {
+			fs->log("File with the given filename already exists:");
+			fs->log(name);
+			return 0;
+		}
+
+		if(file->first_block == 0) {
+			// Yey! We found an available file identifier
+
+			uint16_t first_block_id = rfs_block_alloc(fs, type);
+			rfs_block_write_header(fs, first_block_id, file_id);
+			uint32_t address = rfs_get_block_base_address(first_block_id);
+
+			fs->write(address, (uint8_t*) filename, 16); // Write the filename
+
+			file->filename = filename;
+			file->hash = hash;
+			file->first_block = first_block_id;
+			file->last_block = first_block_id;
+			file->used_blocks = 1;
+			file->length = 0;
+
+			return file;
+		}
+	}
+
+	fs->log("Maximal number of files reached.");
+	return 0;
+}
+
+File* rocket_fs_file(FileSystem* fs, const char* name) {
+	char filename[16] = { 0 };
+	__standardify(name, filename);
+
+	File* file;
+	uint32_t hash = hash_filename(filename);
+	uint8_t bucket = hash % NUM_FILES;
+
+	for(uint8_t file_id = bucket; file_id < bucket + NUM_FILES; file_id++) {
+		file = &(fs->files[file_id % NUM_FILES]);
+
+		if(__filename_equals(file->filename, name)) {
+			return file;
+		}
+	}
+
+	fs->log("File with the given filename was not found in the filesystem:");
+	fs->log(filename);
+
+	return 0;
 }
 
 
-Stream rocket_fs_open(FileSystem* fs, const char* name) {
-	File file = { .identifier = name, .type = RAW, .length = fs->subsector_size };
-	Stream stream;
-	init_stream(&stream, fs, &file);
-	return stream;
+void rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mode) {
+	uint16_t first_block = file->first_block;
+	uint32_t base_address = rfs_get_base_address(first_block);
+	FileType type = fs->partition_table[first_block] >> 4;
+
+	Stream auxiliary;
+
+	switch(mode) {
+	case OVERWRITE:
+		init_stream(stream, fs, base_address, type);
+		break;
+	case APPEND:
+		uint32_t address = rfs_get_base_address(file->last_block);
+		// TODO: Finish implementing this stream mode
+		break;
+	default:
+		fs->log("Unsupported stream mode");
+	}
 }
 
 
+/*
+ * Filename utility functions
+ */
+void __standardify(const char* source, char* target) {
+	for(uint8_t i = 0; i < 15; i++) {
+		if(source[i] != '\0') {
+			target[i] = source[i];
+		} else {
+			break;
+		}
+	}
+}
+
+bool __filename_equals(const char* first, const char* second) {
+	for(uint8_t i = 0; i < 16; i++) {
+		if(first[i] != second[i]) {
+			return false;
+		}
+	}
+
+	return true;
+}
 
 /*
  * Corruption utility functions
