@@ -91,6 +91,11 @@ void rocket_fs_mount(FileSystem* fs) {
 
 	fs->log("Mounting filesystem...");
 
+	if(fs->mounted) {
+		fs->log("Error: FileSystem already mounted.");
+		return;
+	}
+
 	Stream stream;
 	init_stream(&stream, fs, 0, RAW);
 
@@ -100,6 +105,8 @@ void rocket_fs_mount(FileSystem* fs) {
 	if(__periodic_magic_match(MAGIC_PERIOD, magic)) {
 		init_stream(&stream, fs, fs->block_size, RAW);
 
+		fs->log("Reading partition table...");
+
 		for(uint32_t i = 0; i < NUM_BLOCKS; i++) {
 			// Reverse bits to increase the lifetime of NOR flash memories (do not do this if the targeted device is a NAND flash).
 			fs->partition_table[i] = ~stream.read8();
@@ -108,27 +115,59 @@ void rocket_fs_mount(FileSystem* fs) {
 		stream.close();
 
 		rfs_init_block_management(fs); // in block_management.c
+
+		fs->mounted = true;
+
+		fs->log("Filesystem mounted.");
 	} else {
 		// TODO (a) Check redundant magic number.
 		// TODO (b) Write corrupted partition to a free backup slot.
-		fs->log("Mounting filesystem for the first time or filesystem corrupted. Formatting...");
-		rocket_fs_format(fs);
-	}
+		fs->log("Mounting filesystem for the first time or filesystem corrupted.");
 
-	fs->log("Filesystem mounted");
+		rocket_fs_format(fs);
+
+		rocket_fs_mount(fs);
+	}
 }
 
 
 
 void rocket_fs_format(FileSystem* fs) {
+	fs->log("Formatting FileSystem...");
+
 	fs->erase_block(0);    // Core block
 	fs->erase_block(fs->block_size); // Master partition block
 
-	uint64_t magic = __generate_periodic(MAGIC_PERIOD);
 
 	Stream stream;
+	init_stream(&stream, fs, fs->block_size, RAW);
+
+	/*
+	 * Blocks 0 to 7 are reserved anyways
+	 */
+	stream.write8(~0b00001111); // Core block (used as internal relative clock)
+	stream.write8(~0b00001111); // Master partition block
+	stream.write8(~0b00001111); // Recovery partition block
+	stream.write8(~0b00001111); // Backup partition block 1
+	stream.write8(~0b00001111); // Backup partition block 2
+	stream.write8(~0b00001111); // Backup partition block 3
+	stream.write8(~0b00001111); // Backup partition block 4
+	stream.write8(~0b00001111); // Journal block
+
+	stream.close();
+
+	rfs_block_write_header(fs, 0, 0, 0);
+	rfs_block_write_header(fs, 1, 0, 0);
+	rfs_block_write_header(fs, 2, 0, 0);
+	rfs_block_write_header(fs, 3, 0, 0);
+	rfs_block_write_header(fs, 4, 0, 0);
+	rfs_block_write_header(fs, 5, 0, 0);
+	rfs_block_write_header(fs, 6, 0, 0);
+	rfs_block_write_header(fs, 7, 0, 0);
+
 	init_stream(&stream, fs, 0, RAW);
 
+	uint64_t magic = __generate_periodic(MAGIC_PERIOD);
 	stream.write64(magic);
 
 	/*
@@ -137,42 +176,34 @@ void rocket_fs_format(FileSystem* fs) {
 
 	stream.close();
 
-	init_stream(&stream, fs, fs->block_size, RAW);
-
-	/*
-	 * Blocks 0 to 7 are reserved anyways
-	 */
-	stream.write8(0b00001111); // Core block (used as internal relative clock)
-	stream.write8(0b00001111); // Master partition block
-	stream.write8(0b00001111); // Recovery partition block
-	stream.write8(0b00001111); // Backup partition block 1
-	stream.write8(0b00001111); // Backup partition block 2
-	stream.write8(0b00001111); // Backup partition block 3
-	stream.write8(0b00001111); // Backup partition block 4
-	stream.write8(0b00001111); // Journal block
-
-	stream.close();
-
-	/*
-	 * The partition table does not need to be cleared.
-	 */
+	fs->log("FileSystem formatted.");
 }
 
 /*
  * Flushes the partition table
  */
 void rocket_fs_flush(FileSystem* fs) {
-	fs->erase_block(fs->block_size); // Erase the master partition block
+	fs->log("Flushing partition table...");
 
-	Stream stream;
-	init_stream(&stream, fs, fs->block_size, RAW);
+	if(fs->partition_table_modified) {
+		fs->erase_block(fs->block_size); // Erase the master partition block
 
-	for(uint32_t i = 0; i < NUM_BLOCKS; i++) {
-		// Reverse bits to increase the lifetime of NOR flash memories (do not do this if the targeted device is a NAND flash).
-		stream.write8(~fs->partition_table[i]);
+		Stream stream;
+		init_stream(&stream, fs, fs->block_size, RAW);
+
+		for(uint32_t i = 0; i < NUM_BLOCKS; i++) {
+			// Reverse bits to increase the lifetime of NOR flash memories (do not do this if the targeted device is a NAND flash).
+			stream.write8(~fs->partition_table[i]);
+		}
+
+		stream.close();
+
+		fs->partition_table_modified = false;
+
+		fs->log("Partition table flushed.");
+	} else {
+		fs->log("Nothing to flush.");
 	}
-
-	stream.close();
 }
 
 /*
@@ -180,6 +211,8 @@ void rocket_fs_flush(FileSystem* fs) {
  * Storing file names in a hashtable.
  */
 File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
+	fs->log("Creating new file...");
+
 	char filename[16] = { 0 };
 	filename_copy(name, filename);
 
@@ -212,6 +245,8 @@ File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
 			file->used_blocks = 1;
 			file->length = 0;
 
+			fs->log("File created.");
+
 			return file;
 		}
 	}
@@ -221,6 +256,8 @@ File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
 }
 
 void rocket_fs_delfile(FileSystem* fs, File* file) {
+	fs->log("Deleting file...");
+
 	uint16_t block_id = file->first_block;
 
 	while(block_id) {
@@ -233,6 +270,8 @@ void rocket_fs_delfile(FileSystem* fs, File* file) {
 	file->last_block = 0;
 	file->length = 0;
 	file->used_blocks = 0;
+
+	fs->log("File deleted.");
 }
 
 File* rocket_fs_getfile(FileSystem* fs, const char* name) {

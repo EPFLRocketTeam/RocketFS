@@ -32,6 +32,9 @@ static void rfs_update_relative_time(FileSystem* fs);
 static uint32_t __compute_block_length(uint64_t usage_table);
 
 
+static bool allow_unsafe_access = false;
+
+
 
 void rfs_init_block_management(FileSystem* fs) {
 	char identifier[16];
@@ -41,12 +44,15 @@ void rfs_init_block_management(FileSystem* fs) {
 	/*
 	 * First pass: Detect all files.
 	 */
+	fs->log("Detecting files...");
+
 	for(uint16_t block_id = PROTECTED_BLOCKS; block_id < NUM_BLOCKS; block_id++) {
 		uint8_t meta_data = fs->partition_table[block_id];
 
 		if(meta_data) {
 			uint32_t address = fs->block_size * block_id;
 
+			allow_unsafe_access = true;
 			init_stream(&stream, fs, address, RAW);
 
 			uint32_t magic = stream.read32();
@@ -67,13 +73,14 @@ void rfs_init_block_management(FileSystem* fs) {
 				selected_file->first_block = block_id;
 				filename_copy(identifier, selected_file->filename);
 				selected_file->hash = hash;
-				selected_file->used_blocks = 1;
+				selected_file->used_blocks = 0;
 				selected_file->length = 0;
 			} else {
 				fs->data_blocks[predecessor].successor = block_id;
 			}
 
 			stream.close();
+			allow_unsafe_access = false;
 		}
 	}
 
@@ -82,6 +89,8 @@ void rfs_init_block_management(FileSystem* fs) {
 	 * Warning: This function traverses all blocks and does not check for cyclicity.
 	 * This may cause infinite loops in extreme data corruption cases. TODO: Check cyclicity.
 	 */
+	fs->log("Resolving block hierarchy...");
+
 	for(uint8_t file_id = 0; file_id < NUM_FILES; file_id++) {
 		selected_file = &(fs->files[file_id]);
 		uint32_t block_id = selected_file->first_block;
@@ -90,6 +99,8 @@ void rfs_init_block_management(FileSystem* fs) {
 			selected_file->length += rfs_compute_block_length(fs, block_id);
 			selected_file->used_blocks++;
 			selected_file->last_block = block_id;
+
+			fs->total_used_blocks++;
 
 			block_id = fs->data_blocks[block_id].successor;
 		}
@@ -169,6 +180,10 @@ void rfs_block_free(FileSystem* fs, uint16_t block_id) {
  * Returns false if the memory access is denied (end of file).
  */
 bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, AccessType access_type) {
+	if(allow_unsafe_access) {
+		return true; // Bypass software protection mechanism
+	}
+
 	if(length <= fs->block_size - BLOCK_HEADER_SIZE) {
 		uint32_t internal_address = *address % fs->block_size;
 
@@ -190,10 +205,12 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 					FileType file_type = (FileType) (fs->partition_table[block_id] >> 4);
 					uint16_t new_block_id = rfs_block_alloc(fs, file_type); // Allocate a new block
 
+					allow_unsafe_access = true;
 					Stream stream;
 					init_stream(&stream, fs, new_block_id * fs->block_size + 4, RAW);
 					uint16_t file_id = stream.read16();
 					stream.close();
+					allow_unsafe_access = false;
 
 					rfs_block_write_header(fs, new_block_id, file_id, block_id);
 
@@ -231,9 +248,13 @@ uint32_t rfs_compute_block_length(FileSystem* fs, uint16_t block_id) {
 	Stream stream;
 	uint32_t address = block_id * fs->block_size;
 
+	allow_unsafe_access = true;
+
 	init_stream(&stream, fs, address + 8, RAW); // Skip the file id and predecessor block id
 	uint64_t usage_table = stream.read64();
 	stream.close();
+
+	allow_unsafe_access = false;
 
 	return __compute_block_length(usage_table);
 }
@@ -270,6 +291,8 @@ uint32_t rfs_get_block_base_address(FileSystem* fs, uint16_t block_id) {
  * Header update functions
  */
 void rfs_block_write_header(FileSystem* fs, uint16_t block_id, uint16_t file_id, uint16_t predecessor) {
+	allow_unsafe_access = true;
+
 	Stream stream;
 	init_stream(&stream, fs, block_id * fs->block_size, RAW);
 
@@ -278,6 +301,8 @@ void rfs_block_write_header(FileSystem* fs, uint16_t block_id, uint16_t file_id,
 	stream.write16(predecessor);
 
 	stream.close();
+
+	allow_unsafe_access = false;
 }
 
 /*
@@ -301,12 +326,22 @@ static void rfs_block_update_usage_table(FileSystem* fs, uint32_t write_begin, u
 
 	uint64_t usage_bit_mask = ((~0) << (1 + normalised_end)) | ((~0) >> (64 - normalised_begin));
 
-	Stream stream;
-	init_stream(&stream, fs, block_id * fs->block_size + 8, RAW);
+	/*
+	 * We cannot use the stream API because this function is called by rfs_access_memory(),
+	 * which is itself called by all Stream read and write operations.
+	 */
+	uint8_t buffer[8];
 
-	stream.write64(usage_bit_mask);
+	buffer[0] = usage_bit_mask;
+	buffer[1] = usage_bit_mask >> 8;
+	buffer[2] = usage_bit_mask >> 16;
+	buffer[3] = usage_bit_mask >> 24;
+	buffer[4] = usage_bit_mask >> 32;
+	buffer[5] = usage_bit_mask >> 40;
+	buffer[6] = usage_bit_mask >> 48;
+	buffer[7] = usage_bit_mask >> 56;
 
-	stream.close();
+	fs->write(block_id * fs->block_size + 8, buffer, 8);
 }
 
 /*
