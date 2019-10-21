@@ -7,7 +7,7 @@
 
 #include "unit_tests.h"
 #include "emulator.h"
-#include "filesystem.h"
+#include "rocket_fs.h"
 
 #include <stdio.h>
 
@@ -15,6 +15,19 @@
 
 void debug(const char* message) {
 	printf("%s\n", message);
+}
+
+void stream_garbage(FileSystem* fs, const char* name, uint8_t generator) {
+	File* file = rocket_fs_getfile(fs, name);
+
+	Stream stream;
+	rocket_fs_stream(&stream, fs, file, OVERWRITE);
+
+	for(uint16_t i = 0; i < 12345; i++) {
+		stream.write32(i * generator);
+	}
+
+	stream.close();
 }
 
 int main() {
@@ -27,8 +40,13 @@ int main() {
 	rocket_fs_mount(&fs);
 
 
-	rocket_fs_newfile(&fs, "test", RAW);
-	rocket_fs_flush(&fs);
+	rocket_fs_newfile(&fs, "test1", RAW);
+	rocket_fs_newfile(&fs, "test2", RAW);
+	rocket_fs_newfile(&fs, "test3", RAW);
+	rocket_fs_newfile(&fs, "test4", RAW);
+
+	stream_garbage(&fs, "test1", 1);
+
 
 
 	emu_deinit();

@@ -33,7 +33,7 @@ uint32_t hash_filename(const char* name) {
 	uint32_t hash = 13;
 
 	for(uint8_t i = 0; i < 16; i++) {
-		hash += 37 * hash + name[i] * 59;
+		hash = 31 * hash + name[i]; // Java JDK8 String.hashCode() implementation
 	}
 
 	return hash;

@@ -96,14 +96,17 @@ void rocket_fs_mount(FileSystem* fs) {
 		return;
 	}
 
+	uint32_t core_base = rfs_get_block_base_address(fs, 0);
+	uint32_t master_base = rfs_get_block_base_address(fs, 1);
+
 	Stream stream;
-	init_stream(&stream, fs, 0, RAW);
+	init_stream(&stream, fs, core_base, RAW);
 
 	uint64_t magic = stream.read64();
 	stream.close();
 
 	if(__periodic_magic_match(MAGIC_PERIOD, magic)) {
-		init_stream(&stream, fs, fs->block_size, RAW);
+		init_stream(&stream, fs, master_base, RAW);
 
 		fs->log("Reading partition table...");
 
@@ -135,12 +138,15 @@ void rocket_fs_mount(FileSystem* fs) {
 void rocket_fs_format(FileSystem* fs) {
 	fs->log("Formatting FileSystem...");
 
-	fs->erase_block(0);    // Core block
-	fs->erase_block(fs->block_size); // Master partition block
+	uint32_t core_base = rfs_get_block_base_address(fs, 0);
+	uint32_t master_base = rfs_get_block_base_address(fs, 1);
+
+	fs->erase_block(core_base);    // Core block
+	fs->erase_block(master_base); // Master partition block
 
 
 	Stream stream;
-	init_stream(&stream, fs, fs->block_size, RAW);
+	init_stream(&stream, fs, master_base, RAW);
 
 	/*
 	 * Blocks 0 to 7 are reserved anyways
@@ -165,7 +171,7 @@ void rocket_fs_format(FileSystem* fs) {
 	rfs_block_write_header(fs, 6, 0, 0);
 	rfs_block_write_header(fs, 7, 0, 0);
 
-	init_stream(&stream, fs, 0, RAW);
+	init_stream(&stream, fs, core_base, RAW);
 
 	uint64_t magic = __generate_periodic(MAGIC_PERIOD);
 	stream.write64(magic);
@@ -188,8 +194,10 @@ void rocket_fs_flush(FileSystem* fs) {
 	if(fs->partition_table_modified) {
 		fs->erase_block(fs->block_size); // Erase the master partition block
 
+		uint32_t master_base = rfs_get_block_base_address(fs, 1);
+
 		Stream stream;
-		init_stream(&stream, fs, fs->block_size, RAW);
+		init_stream(&stream, fs, master_base, RAW);
 
 		for(uint32_t i = 0; i < NUM_BLOCKS; i++) {
 			// Reverse bits to increase the lifetime of NOR flash memories (do not do this if the targeted device is a NAND flash).
@@ -245,6 +253,8 @@ File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
 			file->used_blocks = 1;
 			file->length = 0;
 
+			rocket_fs_flush(fs);
+
 			fs->log("File created.");
 
 			return file;
@@ -271,6 +281,8 @@ void rocket_fs_delfile(FileSystem* fs, File* file) {
 	file->length = 0;
 	file->used_blocks = 0;
 
+	rocket_fs_flush(fs);
+
 	fs->log("File deleted.");
 }
 
@@ -285,7 +297,7 @@ File* rocket_fs_getfile(FileSystem* fs, const char* name) {
 	for(uint8_t file_id = bucket; file_id < bucket + NUM_FILES; file_id++) {
 		file = &(fs->files[file_id % NUM_FILES]);
 
-		if(filename_equals(file->filename, name)) {
+		if(filename_equals(file->filename, filename)) {
 			return file;
 		}
 	}

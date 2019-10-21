@@ -8,6 +8,7 @@
 #include "block_management.h"
 
 #include "file.h"
+#include "rocket_fs.h"
 #include "stream.h"
 
 
@@ -137,6 +138,8 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
 
 			fs->erase_block(fs->block_size * block_id); // Prepare for writing
 
+			fs->log("Allocated a new block.");
+
 			return block_id;
 		} else if(((*meta) & 0xF) < oldest_block){
 			oldest_block = block_id;
@@ -155,6 +158,8 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
 
 	fs->erase_block(fs->block_size * oldest_block); // Prepare reallocated block for writing
 
+	fs->log("Allocated a new block by overwriting the oldest one.");
+
 	return oldest_block;
 }
 
@@ -164,6 +169,8 @@ void rfs_block_free(FileSystem* fs, uint16_t block_id) {
 		fs->partition_table[block_id] = 0;
 		fs->partition_table_modified = true;
 		fs->total_used_blocks--;
+
+		fs->log("Block freed.");
 	} else {
 		fs->log("Error: Cannot free a protected block");
 	}
@@ -185,19 +192,17 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 	}
 
 	if(length <= fs->block_size - BLOCK_HEADER_SIZE) {
-		uint32_t internal_address = *address % fs->block_size;
+		uint32_t internal_address = 1 + (*address - 1) % fs->block_size;
 
 		if(internal_address < BLOCK_HEADER_SIZE) {
 			*address += BLOCK_HEADER_SIZE - internal_address;
 		}
 
 		if(internal_address + length > fs->block_size) {
-			uint16_t block_id = *address / fs->block_size;
+			uint16_t block_id = (*address - internal_address) / fs->block_size;
 			uint16_t successor_block = fs->data_blocks[block_id].successor;
 
-			if(successor_block) {
-				*address = successor_block * fs->block_size + BLOCK_HEADER_SIZE;
-			} else {
+			if(!successor_block) {
 				switch(access_type) {
 				case READ:
 					return false; // End of file
@@ -205,12 +210,10 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 					FileType file_type = (FileType) (fs->partition_table[block_id] >> 4);
 					uint16_t new_block_id = rfs_block_alloc(fs, file_type); // Allocate a new block
 
-					allow_unsafe_access = true;
-					Stream stream;
-					init_stream(&stream, fs, new_block_id * fs->block_size + 4, RAW);
-					uint16_t file_id = stream.read16();
-					stream.close();
-					allow_unsafe_access = false;
+
+					uint8_t buffer[2];
+					fs->read(block_id * fs->block_size + 4, buffer, 2);
+					uint16_t file_id = (buffer[1] << 8) | buffer[0];
 
 					rfs_block_write_header(fs, new_block_id, file_id, block_id);
 
@@ -218,7 +221,9 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 
 					file->used_blocks += 1;
 					file->last_block = new_block_id;
-					file->length += length;
+					file->length += fs->block_size;
+
+					successor_block = new_block_id;
 
 					break;
 				}
@@ -226,6 +231,8 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 					return false; // Not implemented
 				}
 			}
+
+			*address = successor_block * fs->block_size + BLOCK_HEADER_SIZE;
 		}
 
 		if(access_type == WRITE) {
@@ -291,18 +298,18 @@ uint32_t rfs_get_block_base_address(FileSystem* fs, uint16_t block_id) {
  * Header update functions
  */
 void rfs_block_write_header(FileSystem* fs, uint16_t block_id, uint16_t file_id, uint16_t predecessor) {
-	allow_unsafe_access = true;
+	uint8_t buffer[8];
 
-	Stream stream;
-	init_stream(&stream, fs, block_id * fs->block_size, RAW);
+	buffer[0] = (uint8_t) (BLOCK_MAGIC_NUMBER);
+	buffer[1] = (uint8_t) (BLOCK_MAGIC_NUMBER >> 8);
+	buffer[2] = (uint8_t) (BLOCK_MAGIC_NUMBER >> 16);
+	buffer[3] = (uint8_t) (BLOCK_MAGIC_NUMBER >> 24);
+	buffer[4] = (uint8_t) file_id;
+	buffer[5] = (uint8_t) (file_id >> 8);
+	buffer[6] = (uint8_t) predecessor;
+	buffer[7] = (uint8_t) (predecessor >> 8);
 
-	stream.write32(BLOCK_MAGIC_NUMBER);
-	stream.write16(file_id);
-	stream.write16(predecessor);
-
-	stream.close();
-
-	allow_unsafe_access = false;
+	fs->write(block_id * fs->block_size, buffer, 8);
 }
 
 /*
