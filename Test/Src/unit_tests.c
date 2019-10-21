@@ -40,13 +40,30 @@ int main() {
 	rocket_fs_mount(&fs);
 
 
-	rocket_fs_newfile(&fs, "test1", RAW);
+	File* file1 = rocket_fs_newfile(&fs, "test1", RAW);
 	rocket_fs_newfile(&fs, "test2", RAW);
 	rocket_fs_newfile(&fs, "test3", RAW);
-	rocket_fs_newfile(&fs, "test4", RAW);
+	File* file4 = rocket_fs_newfile(&fs, "test4", RAW);
 
 	stream_garbage(&fs, "test1", 1);
+	stream_garbage(&fs, "test2", 2);
 
+	rocket_fs_delfile(&fs, file1);
+
+	stream_garbage(&fs, "test3", 3);
+
+	rocket_fs_newfile(&fs, "test1", RAW);
+
+	stream_garbage(&fs, "test1", 5);
+	stream_garbage(&fs, "test4", 4);
+
+	Stream stream;
+	rocket_fs_stream(&stream, &fs, file4, APPEND);
+	stream.write((uint8_t*) "THIS TEXT FRAGMENT SHOULD BE APPENDED.", 38);
+	stream.close();
+
+	rocket_fs_unmount(&fs);
+	rocket_fs_mount(&fs);
 
 
 	emu_deinit();

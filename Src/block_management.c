@@ -223,6 +223,8 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 					file->last_block = new_block_id;
 					file->length += fs->block_size;
 
+					fs->data_blocks[block_id].successor = new_block_id;
+
 					successor_block = new_block_id;
 
 					break;
@@ -236,7 +238,7 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 		}
 
 		if(access_type == WRITE) {
-			rfs_block_update_usage_table(fs, *address, *address + length);
+			rfs_block_update_usage_table(fs, *address, *address + length - 1);
 		}
 
 		return true;
@@ -279,12 +281,14 @@ uint32_t rfs_compute_block_length(FileSystem* fs, uint16_t block_id) {
 static uint32_t __compute_block_length(uint64_t usage_table) {
 	uint32_t length = 0;
 
+	usage_table = ~usage_table;
+
 	while(usage_table) {
-		length += ~(usage_table & 0b1);
+		length += usage_table & 0b1;
 		usage_table >>= 1;
 	}
 
-	return length;
+	return 64 * length;
 }
 
 
@@ -319,8 +323,7 @@ void rfs_block_write_header(FileSystem* fs, uint16_t block_id, uint16_t file_id,
  * 		   | 			         |
  * 1111111100000000000000000000000111111111 =
  *
- * 1111111100000000000000000000000000000000 OR
- * 0000000000000000000000000000000111111111
+ * 0000000011111111111111111111111000000000 NOT
  *
  * 1111111100000000000000000000000000000000 = (~0) << (1  + normalised_end)
  * 0000000000000000000000000000000111111111 = (~0) >> (64 - normalised_begin)
@@ -328,10 +331,14 @@ void rfs_block_write_header(FileSystem* fs, uint16_t block_id, uint16_t file_id,
 static void rfs_block_update_usage_table(FileSystem* fs, uint32_t write_begin, uint32_t write_end) {
 	uint16_t block_id = write_begin / fs->block_size;
 
-	uint64_t normalised_begin = (write_begin % fs->block_size) / 64;
-	uint64_t normalised_end = (write_end % fs->block_size) / 64;
+	uint8_t normalised_begin = (write_begin % fs->block_size) / 64;
+	uint8_t normalised_end = (write_end % fs->block_size) / 64;
 
-	uint64_t usage_bit_mask = ((~0) << (1 + normalised_end)) | ((~0) >> (64 - normalised_begin));
+
+	uint64_t begin_bit_mask = (1ULL << normalised_begin) - 1;
+	uint64_t end_bit_mask = (~0ULL << (normalised_end + 1));
+
+	uint64_t usage_bit_mask = normalised_end < 63 ? (begin_bit_mask | end_bit_mask) : begin_bit_mask;
 
 	/*
 	 * We cannot use the stream API because this function is called by rfs_access_memory(),

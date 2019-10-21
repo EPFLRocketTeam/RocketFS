@@ -44,6 +44,8 @@
 /*
  * Utility functions
  */
+static void fs_check_mounted(FileSystem *fs);
+
 static uint8_t __clamp(uint8_t input, uint8_t start, uint8_t end);
 static uint64_t __signed_shift(int64_t input, int8_t amount);
 static uint64_t __generate_periodic(uint8_t period);
@@ -133,6 +135,15 @@ void rocket_fs_mount(FileSystem* fs) {
 	}
 }
 
+void rocket_fs_unmount(FileSystem* fs) {
+	fs->log("Unmounting FileSystem...");
+
+	fs_check_mounted(fs);
+	rocket_fs_flush(fs);
+	fs->mounted = false;
+
+	fs->log("FileSystem unmounted.");
+}
 
 
 void rocket_fs_format(FileSystem* fs) {
@@ -141,7 +152,7 @@ void rocket_fs_format(FileSystem* fs) {
 	uint32_t core_base = rfs_get_block_base_address(fs, 0);
 	uint32_t master_base = rfs_get_block_base_address(fs, 1);
 
-	fs->erase_block(core_base);    // Core block
+	fs->erase_block(core_base);   // Core block
 	fs->erase_block(master_base); // Master partition block
 
 
@@ -189,6 +200,8 @@ void rocket_fs_format(FileSystem* fs) {
  * Flushes the partition table
  */
 void rocket_fs_flush(FileSystem* fs) {
+	fs_check_mounted(fs);
+
 	fs->log("Flushing partition table...");
 
 	if(fs->partition_table_modified) {
@@ -219,6 +232,8 @@ void rocket_fs_flush(FileSystem* fs) {
  * Storing file names in a hashtable.
  */
 File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
+	fs_check_mounted(fs);
+
 	fs->log("Creating new file...");
 
 	char filename[16] = { 0 };
@@ -266,27 +281,40 @@ File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
 }
 
 void rocket_fs_delfile(FileSystem* fs, File* file) {
+	fs_check_mounted(fs);
+
 	fs->log("Deleting file...");
 
 	uint16_t block_id = file->first_block;
+	DataBlock* block;
 
-	while(block_id) {
-		rfs_block_free(fs, block_id);
-		block_id = fs->data_blocks[block_id].successor;
+	if(block_id) {
+		do {
+			rfs_block_free(fs, block_id);
+
+			block = &(fs->data_blocks[block_id]);
+
+			block_id = block->successor;
+			block->successor = 0;
+		} while(block_id);
+
+		file->hash = 0;
+		file->first_block = 0;
+		file->last_block = 0;
+		file->length = 0;
+		file->used_blocks = 0;
+
+		rocket_fs_flush(fs);
+
+		fs->log("File deleted.");
+	} else {
+		fs->log("File does not exist.");
 	}
-
-	file->hash = 0;
-	file->first_block = 0;
-	file->last_block = 0;
-	file->length = 0;
-	file->used_blocks = 0;
-
-	rocket_fs_flush(fs);
-
-	fs->log("File deleted.");
 }
 
 File* rocket_fs_getfile(FileSystem* fs, const char* name) {
+	fs_check_mounted(fs);
+
 	char filename[16] = { 0 };
 	filename_copy(name, filename);
 
@@ -297,7 +325,7 @@ File* rocket_fs_getfile(FileSystem* fs, const char* name) {
 	for(uint8_t file_id = bucket; file_id < bucket + NUM_FILES; file_id++) {
 		file = &(fs->files[file_id % NUM_FILES]);
 
-		if(filename_equals(file->filename, filename)) {
+		if(file->first_block && filename_equals(file->filename, filename)) {
 			return file;
 		}
 	}
@@ -310,6 +338,8 @@ File* rocket_fs_getfile(FileSystem* fs, const char* name) {
 
 
 bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mode) {
+	fs_check_mounted(fs);
+
 	switch(mode) {
 	case OVERWRITE: {
 		uint16_t first_block = file->first_block;
@@ -322,7 +352,7 @@ bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mod
 
 	case APPEND: {
 		uint16_t last_block = file->last_block;
-		uint32_t base_address = rfs_get_block_base_address(fs, file->last_block) + rfs_compute_block_length(fs, file->last_block);
+		uint32_t base_address = rfs_get_block_base_address(fs, last_block) + rfs_compute_block_length(fs, last_block);
 
 		FileType type = fs->partition_table[last_block] >> 4;
 
@@ -337,6 +367,12 @@ bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mod
 	return true;
 }
 
+
+static void fs_check_mounted(FileSystem *fs) {
+	if(!fs->mounted) {
+		fs->log("Error: FileSystem not mounted");
+	}
+}
 
 
 /*

@@ -87,6 +87,7 @@ void rocket_fs_bind(
 );
 
 void rocket_fs_mount(FileSystem* fs);
+void rocket_fs_unmount(FileSystem* fs);
 void rocket_fs_format(FileSystem* fs);
 void rocket_fs_flush(FileSystem* fs); // Flushes the partition table
 File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type);
