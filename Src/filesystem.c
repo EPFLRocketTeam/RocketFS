@@ -348,7 +348,7 @@ bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mod
 	switch(mode) {
 	case OVERWRITE: {
 		uint16_t first_block = file->first_block;
-		uint32_t base_address = rfs_get_block_base_address(fs, first_block);
+		uint32_t base_address = rfs_get_block_base_address(fs, first_block) + 16; // Do not overwrite the 16-characters long identifier
 
 		FileType type = fs->partition_table[first_block] >> 4;
 
