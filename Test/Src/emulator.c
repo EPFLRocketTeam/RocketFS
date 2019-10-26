@@ -5,6 +5,9 @@
  *      Author: pcoo56
  */
 
+#ifdef TESTING
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +46,10 @@ void emu_init() {
 	printf("Initialising memory emulator... ");
 
 	__emu_memory = (uint8_t*) malloc(sizeof(uint8_t) * FS_ADDRESSABLE_SPACE);
+
+	for(uint32_t i = 0; i < FS_ADDRESSABLE_SPACE; i++) {
+		__emu_memory[i] = i % 256;
+	}
 
 	if(!__emu_memory) {
 		__emu_fatal("Unable to allocate memory for the emulator");
@@ -86,3 +93,5 @@ void emu_erase_sector(uint32_t address) {
 
 	memset(__emu_memory + address - address % FS_SECTOR_SIZE, 0xFF, FS_SECTOR_SIZE);
 }
+
+#endif
