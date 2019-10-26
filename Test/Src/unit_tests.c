@@ -5,13 +5,12 @@
  *      Author: pcoo56
  */
 
-#include "unit_tests.h"
+#ifdef TESTING
+
 #include "emulator.h"
 #include "rocket_fs.h"
 
 #include <stdio.h>
-
-#ifdef TESTING
 
 void debug(const char* message) {
 	printf("%s\n", message);

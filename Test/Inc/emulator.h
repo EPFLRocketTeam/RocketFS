@@ -9,8 +9,6 @@
 #define TEST_INC_EMULATOR_H_
 
 
-#include "unit_tests.h"
-
 #include <stdint.h>
 
 /*
