@@ -13,6 +13,7 @@
 static FileSystem* fs;
 
 static bool file_open = false;
+static bool end_of_file = false;
 
 static uint32_t read_address = 0xFFFFFFFFL;
 static uint32_t write_address = 0xFFFFFFFFL;
@@ -20,7 +21,7 @@ static uint32_t write_address = 0xFFFFFFFFL;
 
 static void __close();
 
-static void     raw_read(uint8_t* buffer, uint32_t length);
+static int32_t  raw_read(uint8_t* buffer, uint32_t length);
 static uint8_t  raw_read8();
 static uint16_t raw_read16();
 static uint32_t raw_read32();
@@ -43,6 +44,7 @@ bool init_stream(Stream* stream, FileSystem* filesystem, uint32_t base_address, 
 
 		switch(type) {
 		case RAW:
+			stream->eof = &end_of_file;
 			stream->read = &raw_read;
 			stream->read8 = &raw_read8;
 			stream->read16 = &raw_read16;
@@ -81,11 +83,18 @@ static void __close() {
 /* RAW IO FUNCTIONS */
 static uint8_t coder[8]; // Used as encoder and decoder
 
-static void raw_read(uint8_t* buffer, uint32_t length) {
-	rfs_access_memory(fs, &read_address, length, READ); // Transforms the write address (or fails if end of file) if we are at the end of a readable section
+static int32_t raw_read(uint8_t* buffer, uint32_t length) {
+	int32_t readable_length = rfs_access_memory(fs, &read_address, length, READ); // Transforms the write address (or fails if end of file) if we are at the end of a readable section
 
-	fs->read(read_address, buffer, length);
-	read_address += length;
+	if(readable_length != -1) {
+		fs->read(read_address, buffer, readable_length);
+		read_address += readable_length;
+		end_of_file = true;
+	} else {
+		end_of_file = false;
+	}
+
+	return readable_length;
 }
 
 static uint8_t raw_read8() {

@@ -39,7 +39,7 @@ int main() {
 	rocket_fs_mount(&fs);
 
 
-	File* file1 = rocket_fs_newfile(&fs, "test1", RAW);
+	File* file1 = rocket_fs_newfile(&fs, "Flight Data", RAW);
 	rocket_fs_newfile(&fs, "test2", RAW);
 	rocket_fs_newfile(&fs, "test3", RAW);
 	File* file4 = rocket_fs_newfile(&fs, "test4", RAW);

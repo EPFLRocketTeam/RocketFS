@@ -33,8 +33,10 @@ static void rfs_update_relative_time(FileSystem* fs);
 static uint32_t __compute_block_length(uint64_t usage_table);
 
 
-static bool allow_unsafe_access = false;
 
+static const char* PROGRESS[] = {"10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"};
+
+static bool allow_unsafe_access = false;
 
 
 void rfs_init_block_management(FileSystem* fs) {
@@ -50,6 +52,10 @@ void rfs_init_block_management(FileSystem* fs) {
 	for(uint16_t block_id = PROTECTED_BLOCKS; block_id < NUM_BLOCKS; block_id++) {
 		uint8_t meta_data = fs->partition_table[block_id];
 
+		if(block_id % (NUM_BLOCKS / 10) == 0) {
+			fs->log(PROGRESS[9 * block_id / NUM_BLOCKS]);
+		}
+
 		if(meta_data) {
 			uint32_t address = fs->block_size * block_id;
 
@@ -62,9 +68,7 @@ void rfs_init_block_management(FileSystem* fs) {
 
 			if(magic != BLOCK_MAGIC_NUMBER) {
 				fs->log("Warning: Invalid magic number");
-			}
-
-			if(!predecessor) {
+			} else if(!predecessor) {
 				stream.read((uint8_t*) identifier, 16);
 
 				selected_file = &(fs->files[file_id]);
@@ -184,11 +188,11 @@ void rfs_block_free(FileSystem* fs, uint16_t block_id) {
  * This only provides forward memory protection.
  * Do not attempt to access memory before the address provided by rfs_block_alloc().
  * Implementing full memory protection would cost memory and is not absolutely necessary.
- * Returns false if the memory access is denied (end of file).
+ * Returns the number of readable bytes.
  */
-bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, AccessType access_type) {
+int32_t rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, AccessType access_type) {
 	if(allow_unsafe_access) {
-		return true; // Bypass software protection mechanism
+		return length; // Bypass software protection mechanism
 	}
 
 	if(length <= fs->block_size - BLOCK_HEADER_SIZE) {
@@ -205,7 +209,7 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 			if(!successor_block) {
 				switch(access_type) {
 				case READ:
-					return false; // End of file
+					return fs->block_size - internal_address; // End of file
 				case WRITE: {
 					FileType file_type = (FileType) (fs->partition_table[block_id] >> 4);
 					uint16_t new_block_id = rfs_block_alloc(fs, file_type); // Allocate a new block
@@ -230,7 +234,7 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 					break;
 				}
 				default:
-					return false; // Not implemented
+					return -1; // Not implemented
 				}
 			}
 
@@ -241,9 +245,9 @@ bool rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Acces
 			rfs_block_update_usage_table(fs, *address, *address + length - 1);
 		}
 
-		return true;
+		return length;
 	} else {
-		return false;
+		return -1;
 	}
 }
 
