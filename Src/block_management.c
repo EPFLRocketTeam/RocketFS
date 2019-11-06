@@ -66,22 +66,28 @@ void rfs_init_block_management(FileSystem* fs) {
 			uint16_t file_id = stream.read16();
 			uint16_t predecessor = stream.read16();
 
-			if(magic != BLOCK_MAGIC_NUMBER) {
-				fs->log("Warning: Invalid magic number");
-			} else if(!predecessor) {
-				stream.read((uint8_t*) identifier, 16);
+			stream.read64(); // Skip the usage table
 
-				selected_file = &(fs->files[file_id]);
+			if(magic == BLOCK_MAGIC_NUMBER) {
+				if(!predecessor) {
+					stream.read((uint8_t*) identifier, 16);
 
-				uint32_t hash = hash_filename(identifier);
+					fs->log(identifier);
 
-				selected_file->first_block = block_id;
-				filename_copy(identifier, selected_file->filename);
-				selected_file->hash = hash;
-				selected_file->used_blocks = 0;
-				selected_file->length = 0;
+					selected_file = &(fs->files[file_id]);
+
+					uint32_t hash = hash_filename(identifier);
+
+					selected_file->first_block = block_id;
+					filename_copy(identifier, selected_file->filename);
+					selected_file->hash = hash;
+					selected_file->used_blocks = 0;
+					selected_file->length = 0;
+				} else {
+					fs->data_blocks[predecessor].successor = block_id;
+				}
 			} else {
-				fs->data_blocks[predecessor].successor = block_id;
+				fs->log("Warning: Invalid magic number. Ignoring block");
 			}
 
 			stream.close();

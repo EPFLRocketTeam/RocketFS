@@ -112,12 +112,13 @@ void rocket_fs_mount(FileSystem* fs) {
 
 		fs->log("Reading partition table...");
 
+		stream.read(fs->partition_table, NUM_BLOCKS);
+		stream.close();
+
 		for(uint32_t i = 0; i < NUM_BLOCKS; i++) {
 			// Reverse bits to increase the lifetime of NOR flash memories (do not do this if the targeted device is a NAND flash).
-			fs->partition_table[i] = ~stream.read8();
+			fs->partition_table[i] = ~fs->partition_table[i];
 		}
-
-		stream.close();
 
 		rfs_init_block_management(fs); // in block_management.c
 
@@ -212,11 +213,15 @@ void rocket_fs_flush(FileSystem* fs) {
 		Stream stream;
 		init_stream(&stream, fs, master_base, RAW);
 
+
+		uint8_t buffer[NUM_BLOCKS];
+
 		for(uint32_t i = 0; i < NUM_BLOCKS; i++) {
 			// Reverse bits to increase the lifetime of NOR flash memories (do not do this if the targeted device is a NAND flash).
-			stream.write8(~fs->partition_table[i]);
+			buffer[i] = ~fs->partition_table[i];
 		}
 
+		stream.write(buffer, NUM_BLOCKS);
 		stream.close();
 
 		fs->partition_table_modified = false;
@@ -343,7 +348,7 @@ bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mod
 	switch(mode) {
 	case OVERWRITE: {
 		uint16_t first_block = file->first_block;
-		uint32_t base_address = rfs_get_block_base_address(fs, first_block);
+		uint32_t base_address = rfs_get_block_base_address(fs, first_block) + 16; // Do not overwrite the 16-characters long identifier
 
 		FileType type = fs->partition_table[first_block] >> 4;
 
