@@ -9,13 +9,19 @@
 
 
 void filename_copy(const char* source, char* target) {
-	for(uint8_t i = 0; i < 15; i++) {
+	uint8_t i;
+
+   for(i = 0; i < 15; i++) {
 		if(source[i] != '\0') {
 			target[i] = source[i];
 		} else {
-			break;
+         break;
 		}
 	}
+
+   while(i < 15) {
+      target[i++] = '\0';
+   }
 }
 
 bool filename_equals(const char* first, const char* second) {
@@ -33,7 +39,11 @@ uint32_t hash_filename(const char* name) {
 	uint32_t hash = 13;
 
 	for(uint8_t i = 0; i < 16; i++) {
-		hash = 31 * hash + name[i]; // Java JDK8 String.hashCode() implementation
+	   if(name[i] != '\0') {
+         hash = 31 * hash + name[i]; // Java JDK8 String.hashCode() implementation
+	   } else {
+	      break;
+	   }
 	}
 
 	return hash;

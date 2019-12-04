@@ -12,7 +12,7 @@
 #include "stream.h"
 
 
-#define BLOCK_MAGIC_NUMBER 0xC0FFEE42
+#define BLOCK_MAGIC_NUMBER 0xC0FFEE00
 #define BLOCK_HEADER_SIZE 16
 /*
  * 0...3:  Magic number
@@ -161,12 +161,20 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
       uint8_t header[8];
 
       fs->read(fs->block_size * oldest_block_id, header, 8);
+
+      /*
+       * The following lines contain code to minimise the corruption caused by a flash memory overflow.
+       * However, the commented implementation would take one memory block for each reallocated block. This is bad.
+       */
+
+      /*
       fs->erase_block(fs->block_size * successor_block_id); // TODO This needs to be improved. We lose one block for each reallocation.
       fs->write(fs->block_size * successor_block_id, header, 8);
 
       uint8_t overwrite_buffer[8];
-      fs->partition_table[successor_block_id] = 0b11110000; // Set the successor block as a 'dummy' block
+      fs->partition_table[successor_block_id] = 0b11110000; // Set the successor block as a 'dead' block
       fs->write(fs->block_size * successor_block_id + 8, overwrite_buffer, 8); // Set the successor block full
+       */
 
       fs->data_blocks[predecessor_block_id].successor = successor_block_id;
 
