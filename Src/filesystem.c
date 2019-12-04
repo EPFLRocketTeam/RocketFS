@@ -72,6 +72,10 @@ void rocket_fs_bind(
 	fs->write = write;
 	fs->erase_block = erase_block;
 	fs->io_bound = true;
+
+   if(!fs->debug) {
+      fs->log = &__no_log;
+   }
 }
 
 void rocket_fs_device(FileSystem* fs, const char *id, uint32_t capacity, uint32_t block_size) {
@@ -87,10 +91,6 @@ void rocket_fs_device(FileSystem* fs, const char *id, uint32_t capacity, uint32_
 }
 
 void rocket_fs_mount(FileSystem* fs) {
-	if(!fs->debug) {
-		fs->log = &__no_log;
-	}
-
 	fs->log("Mounting filesystem...");
 
 	if(fs->mounted) {
@@ -112,12 +112,12 @@ void rocket_fs_mount(FileSystem* fs) {
 
 		fs->log("Reading partition table...");
 
-		stream.read(fs->partition_table, NUM_BLOCKS);
+		stream.read(fs->reverse_partition_table, NUM_BLOCKS);
 		stream.close();
 
 		for(uint32_t i = 0; i < NUM_BLOCKS; i++) {
 			// Reverse bits to increase the lifetime of NOR flash memories (do not do this if the targeted device is a NAND flash).
-			fs->partition_table[i] = ~fs->partition_table[i];
+			fs->partition_table[i] = ~fs->reverse_partition_table[i];
 		}
 
 		rfs_init_block_management(fs); // in block_management.c
@@ -163,14 +163,14 @@ void rocket_fs_format(FileSystem* fs) {
 	/*
 	 * Blocks 0 to 7 are reserved anyways
 	 */
-	stream.write8(~0b00001111); // Core block (used as internal relative clock)
-	stream.write8(~0b00001111); // Master partition block
-	stream.write8(~0b00001111); // Recovery partition block
-	stream.write8(~0b00001111); // Backup partition block 1
-	stream.write8(~0b00001111); // Backup partition block 2
-	stream.write8(~0b00001111); // Backup partition block 3
-	stream.write8(~0b00001111); // Backup partition block 4
-	stream.write8(~0b00001111); // Journal block
+	stream.write8(~0b00001110); // Core block (used as internal relative clock)
+	stream.write8(~0b00001110); // Master partition block
+	stream.write8(~0b00001110); // Recovery partition block
+	stream.write8(~0b00001110); // Backup partition block 1
+	stream.write8(~0b00001110); // Backup partition block 2
+	stream.write8(~0b00001110); // Backup partition block 3
+	stream.write8(~0b00001110); // Backup partition block 4
+	stream.write8(~0b00001110); // Journal block
 
 	stream.close();
 
@@ -194,6 +194,8 @@ void rocket_fs_format(FileSystem* fs) {
 
 	stream.close();
 
+	fs->total_used_blocks = 8;
+
 	fs->log("FileSystem formatted.");
 }
 
@@ -208,20 +210,21 @@ void rocket_fs_flush(FileSystem* fs) {
 	if(fs->partition_table_modified) {
 		fs->erase_block(fs->block_size); // Erase the master partition block
 
+	   fs->log("Master partition block erased.");
+
 		uint32_t master_base = rfs_get_block_base_address(fs, 1);
 
 		Stream stream;
 		init_stream(&stream, fs, master_base, RAW);
 
-
-		uint8_t buffer[NUM_BLOCKS];
-
 		for(uint32_t i = 0; i < NUM_BLOCKS; i++) {
 			// Reverse bits to increase the lifetime of NOR flash memories (do not do this if the targeted device is a NAND flash).
-			buffer[i] = ~fs->partition_table[i];
+		   fs->reverse_partition_table[i] = ~fs->partition_table[i];
 		}
 
-		stream.write(buffer, NUM_BLOCKS);
+      fs->log("Partition data encoded.");
+
+		stream.write(fs->reverse_partition_table, NUM_BLOCKS);
 		stream.close();
 
 		fs->partition_table_modified = false;
@@ -237,11 +240,12 @@ void rocket_fs_flush(FileSystem* fs) {
  * Storing file names in a hashtable.
  */
 File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
-	fs_check_mounted(fs);
+   static char filename[16];
+
+   fs_check_mounted(fs);
 
 	fs->log("Creating new file...");
 
-	char filename[16] = { 0 };
 	filename_copy(name, filename);
 
 	File* file;
@@ -262,6 +266,9 @@ File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
 
 			uint16_t first_block_id = rfs_block_alloc(fs, type);
 			rfs_block_write_header(fs, first_block_id, file_id, 0);
+
+			fs->partition_table[first_block_id] |= 3; // Set the file base block immortal
+
 			uint32_t address = rfs_get_block_base_address(fs, first_block_id);
 
 			fs->write(address, (uint8_t*) filename, 16); // Write the filename
@@ -331,6 +338,7 @@ File* rocket_fs_getfile(FileSystem* fs, const char* name) {
 		file = &(fs->files[file_id % NUM_FILES]);
 
 		if(file->first_block && filename_equals(file->filename, filename)) {
+		   //rfs_load_file_meta(fs, file);
 			return file;
 		}
 	}
@@ -358,6 +366,10 @@ bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mod
 	case APPEND: {
 		uint16_t last_block = file->last_block;
 		uint32_t base_address = rfs_get_block_base_address(fs, last_block) + rfs_compute_block_length(fs, last_block);
+
+		if(file->first_block == file->last_block) {
+		   base_address += 16; // Do not overwrite the identifier.
+		}
 
 		FileType type = fs->partition_table[last_block] >> 4;
 

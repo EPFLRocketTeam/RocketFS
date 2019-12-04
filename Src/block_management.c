@@ -28,19 +28,16 @@ static void rfs_block_update_usage_table(FileSystem* fs, uint32_t write_begin, u
 
 static void rfs_update_relative_time(FileSystem* fs);
 static void rfs_decrease_relative_time(FileSystem* fs);
-static void rfs_update_relative_time(FileSystem* fs);
 
 static uint32_t __compute_block_length(uint64_t usage_table);
 
 
 
-static const char* PROGRESS[] = {"10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"};
-
 static bool allow_unsafe_access = false;
 
 
 void rfs_init_block_management(FileSystem* fs) {
-	char identifier[16];
+	static char identifier[16];
 	Stream stream;
 	File* selected_file;
 
@@ -51,10 +48,6 @@ void rfs_init_block_management(FileSystem* fs) {
 
 	for(uint16_t block_id = PROTECTED_BLOCKS; block_id < NUM_BLOCKS; block_id++) {
 		uint8_t meta_data = fs->partition_table[block_id];
-
-		if(block_id % (NUM_BLOCKS / 10) == 0) {
-			fs->log(PROGRESS[9 * block_id / NUM_BLOCKS]);
-		}
 
 		if(meta_data) {
 			uint32_t address = fs->block_size * block_id;
@@ -104,20 +97,10 @@ void rfs_init_block_management(FileSystem* fs) {
 
 	for(uint8_t file_id = 0; file_id < NUM_FILES; file_id++) {
 		selected_file = &(fs->files[file_id]);
-		uint32_t block_id = selected_file->first_block;
-
-		while(block_id) {
-			selected_file->length += rfs_compute_block_length(fs, block_id);
-			selected_file->used_blocks++;
-			selected_file->last_block = block_id;
-
-			fs->total_used_blocks++;
-
-			block_id = fs->data_blocks[block_id].successor;
-		}
+		uint32_t used_blocks = rfs_load_file_meta(fs, selected_file);
+		fs->total_used_blocks += used_blocks;
 	}
 }
-
 
 
 /*
@@ -131,10 +114,12 @@ void rfs_init_block_management(FileSystem* fs) {
  * Only the partition table is modified.
  */
 uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
-	uint16_t oldest_block;
+	uint16_t oldest_block_id = PROTECTED_BLOCKS;
+   uint16_t oldest_block_age = 0xF;
 
 	for(uint16_t block_id = PROTECTED_BLOCKS; block_id < NUM_BLOCKS; block_id++) {
 		uint8_t* meta = &(fs->partition_table[block_id]);
+		uint8_t age = (*meta) & 0xF;
 
 		if(*meta == 0) {
 			// We found a free block!
@@ -144,33 +129,62 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
 			*meta = (type << 4) | 0b1100;
 			fs->partition_table_modified = true;
 
+			fs->data_blocks[block_id].successor = 0;
+
 			rfs_update_relative_time(fs);
 
 			fs->erase_block(fs->block_size * block_id); // Prepare for writing
 
-			fs->log("Allocated a new block.");
+			// fs->log("Allocated a new block.");
 
 			return block_id;
-		} else if(((*meta) & 0xF) < oldest_block){
-			oldest_block = block_id;
+		} else if(age < oldest_block_age){
+		   oldest_block_id = block_id;
+		   oldest_block_age = age;
 		}
 	}
 
 	/* Device is full! Realloc oldest block. */
-	uint8_t* oldest_block_meta = &(fs->partition_table[oldest_block]);
 
-	if((*oldest_block_meta & 0xF) > 0) { // Some correction for a better relative time repartition
+	if(oldest_block_age > 0) { // Some correction for a better relative time repartition
 		rfs_decrease_relative_time(fs);
 	}
 
-	*oldest_block_meta = (type << 4) | 0b1100; // Reset the entry in the partition table
+   fs->partition_table[oldest_block_id] = (type << 4) | 0b1100; // Reset the entry in the partition table
 	fs->partition_table_modified = true;
 
-	fs->erase_block(fs->block_size * oldest_block); // Prepare reallocated block for writing
+	// Now, we have to update the predecessor/successor references to avoid inconsistencies in the filesystem.
+   uint16_t successor_block_id = fs->data_blocks[oldest_block_id].successor;
+   uint16_t predecessor_block_id = 0;
 
-	fs->log("Allocated a new block by overwriting the oldest one.");
+   if(successor_block_id) {
+      uint8_t header[8];
 
-	return oldest_block;
+      fs->read(fs->block_size * oldest_block_id, header, 8);
+      fs->erase_block(fs->block_size * successor_block_id); // TODO This needs to be improved. We lose one block for each reallocation.
+      fs->write(fs->block_size * successor_block_id, header, 8);
+
+      uint8_t overwrite_buffer[8];
+      fs->partition_table[successor_block_id] = 0b11110000; // Set the successor block as a 'dummy' block
+      fs->write(fs->block_size * successor_block_id + 8, overwrite_buffer, 8); // Set the successor block full
+
+      fs->data_blocks[predecessor_block_id].successor = successor_block_id;
+
+      File* old_file = &fs->files[(header[5] << 8) | header[4]];
+
+      old_file->length -= 4096;
+      old_file->used_blocks--;
+   }
+
+   fs->data_blocks[oldest_block_id].successor = 0;
+
+   rfs_update_relative_time(fs);
+
+	fs->erase_block(fs->block_size * oldest_block_id); // Prepare reallocated block for writing
+
+	// fs->log("Allocated a new block by overwriting the oldest one.");
+
+	return oldest_block_id;
 }
 
 
@@ -180,7 +194,7 @@ void rfs_block_free(FileSystem* fs, uint16_t block_id) {
 		fs->partition_table_modified = true;
 		fs->total_used_blocks--;
 
-		fs->log("Block freed.");
+		// fs->log("Block freed.");
 	} else {
 		fs->log("Error: Cannot free a protected block");
 	}
@@ -201,63 +215,83 @@ int32_t rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Ac
 		return length; // Bypass software protection mechanism
 	}
 
-	if(length <= fs->block_size - BLOCK_HEADER_SIZE) {
-		uint32_t internal_address = 1 + (*address - 1) % fs->block_size;
+   uint32_t internal_address = 1 + (*address - 1) % fs->block_size;
 
-		if(internal_address < BLOCK_HEADER_SIZE) {
-			*address += BLOCK_HEADER_SIZE - internal_address;
-		}
+   if(internal_address < BLOCK_HEADER_SIZE) {
+      // Correction of the address when it is too low
+      *address += BLOCK_HEADER_SIZE - internal_address;
+   } else if(internal_address == fs->block_size) {
+      // Correction of the address when it is at the end of a block
+      uint16_t block_id = (*address - internal_address) / fs->block_size;
+      uint16_t successor_block = fs->data_blocks[block_id].successor;
 
-		if(internal_address + length > fs->block_size) {
-			uint16_t block_id = (*address - internal_address) / fs->block_size;
-			uint16_t successor_block = fs->data_blocks[block_id].successor;
+      if(!successor_block) {
+         switch(access_type) {
+         case READ:
+            return -1; // End of file
+         case WRITE: {
+            uint8_t buffer[2];
+            fs->read(block_id * fs->block_size + 4, buffer, 2); // Read the file identifier
+            uint16_t file_id = (buffer[1] << 8) | buffer[0];
 
-			if(!successor_block) {
-				switch(access_type) {
-				case READ:
-					return fs->block_size - internal_address; // End of file
-				case WRITE: {
-					FileType file_type = (FileType) (fs->partition_table[block_id] >> 4);
-					uint16_t new_block_id = rfs_block_alloc(fs, file_type); // Allocate a new block
+            FileType file_type = (FileType) (fs->partition_table[block_id] >> 4);
+            uint16_t new_block_id = rfs_block_alloc(fs, file_type); // Allocate a new block
 
+            rfs_block_write_header(fs, new_block_id, file_id, block_id);
 
-					uint8_t buffer[2];
-					fs->read(block_id * fs->block_size + 4, buffer, 2);
-					uint16_t file_id = (buffer[1] << 8) | buffer[0];
+            File* file = &(fs->files[file_id]);
 
-					rfs_block_write_header(fs, new_block_id, file_id, block_id);
+            file->used_blocks += 1;
+            file->last_block = new_block_id;
+            file->length += fs->block_size;
 
-					File* file = &(fs->files[file_id]);
+            fs->data_blocks[block_id].successor = new_block_id;
 
-					file->used_blocks += 1;
-					file->last_block = new_block_id;
-					file->length += fs->block_size;
+            successor_block = new_block_id;
 
-					fs->data_blocks[block_id].successor = new_block_id;
+            break;
+         }
+         default:
+            return -1; // Not implemented
+         }
+      }
 
-					successor_block = new_block_id;
+      *address = successor_block * fs->block_size + BLOCK_HEADER_SIZE;
+      internal_address = BLOCK_HEADER_SIZE;
+   }
 
-					break;
-				}
-				default:
-					return -1; // Not implemented
-				}
-			}
+   if(access_type == WRITE) {
+      rfs_block_update_usage_table(fs, *address, *address + length - 1);
+   }
 
-			*address = successor_block * fs->block_size + BLOCK_HEADER_SIZE;
-		}
+   if(internal_address + length > fs->block_size) {
+      return fs->block_size - internal_address; // Readable/Writable length correction
+   }
 
-		if(access_type == WRITE) {
-			rfs_block_update_usage_table(fs, *address, *address + length - 1);
-		}
-
-		return length;
-	} else {
-		return -1;
-	}
+   return length;
 }
 
 
+
+/*
+ * Returns the number of blocks used by this file.
+ */
+uint16_t rfs_load_file_meta(FileSystem* fs, File* file) {
+   uint32_t block_id = file->first_block;
+
+   file->length = 0;
+   file->used_blocks = 0;
+
+   while(block_id) {
+      file->length += rfs_compute_block_length(fs, block_id);
+      file->used_blocks++;
+      file->last_block = block_id;
+
+      block_id = fs->data_blocks[block_id].successor;
+   }
+
+   return file->used_blocks;
+}
 
 
 /*
@@ -376,9 +410,9 @@ static void rfs_block_update_usage_table(FileSystem* fs, uint32_t write_begin, u
  */
 static void rfs_update_relative_time(FileSystem* fs) {
 	uint8_t anchor = fs->partition_table[0] & 0xF; // Core block meta is used as a time reference
-	uint8_t available_space = 16 - (fs->total_used_blocks * 16UL) / NUM_BLOCKS; // Ranges from 0 to 16
+	uint8_t available_space = 16 - (fs->total_used_blocks * 16UL) / NUM_BLOCKS; // Ranges from 0 to 15
 
-	if(anchor > available_space) {
+	if(anchor + 1 > available_space) {
 		rfs_decrease_relative_time(fs);
 	}
 }
@@ -387,7 +421,7 @@ static void rfs_decrease_relative_time(FileSystem* fs) {
 	for(uint16_t block_id = 0; block_id < NUM_BLOCKS; block_id++) {
 		uint8_t* meta = &(fs->partition_table[block_id]);
 
-		if(*meta > 0) {
+		if((*meta & 0xF) > 0 && (*meta & 0xF) < 0xF) {
 			(*meta)--;
 		}
 	}

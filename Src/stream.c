@@ -64,6 +64,7 @@ bool init_stream(Stream* stream, FileSystem* filesystem, uint32_t base_address, 
 		}
 
 		file_open = true;
+      end_of_file = false;
 
 		return true;
 	} else {
@@ -84,17 +85,26 @@ static void __close() {
 static uint8_t coder[8]; // Used as encoder and decoder
 
 static int32_t raw_read(uint8_t* buffer, uint32_t length) {
-	int32_t readable_length = rfs_access_memory(fs, &read_address, length, READ); // Transforms the write address (or fails if end of file) if we are at the end of a readable section
+	uint32_t index = 0;
+	int32_t readable_length = 0;
 
-	if(readable_length != -1) {
-		fs->read(read_address, buffer, readable_length);
+	do {
+	   readable_length = rfs_access_memory(fs, &read_address, length - index, READ); // Transforms the write address (or fails if end of file) if we are at the end of a readable section
+
+	   if(readable_length < 0) {
+         end_of_file = true;
+         return index;
+      } else {
+         end_of_file = false;
+      }
+
+		fs->read(read_address, buffer + index, readable_length);
+
+		index += readable_length;
 		read_address += readable_length;
-		end_of_file = true;
-	} else {
-		end_of_file = false;
-	}
+	} while(index < length);
 
-	return readable_length;
+	return length;
 }
 
 static uint8_t raw_read8() {
@@ -144,10 +154,24 @@ static uint64_t raw_read64() {
 }
 
 static void raw_write(uint8_t* buffer, uint32_t length) {
-	rfs_access_memory(fs, &write_address, length, WRITE); // Transforms the write address (and alloc new blocks if necessary) if we are at the end of a writable section
+   uint32_t index = 0;
+   int32_t writable_length = 0;
 
-	fs->write(write_address, buffer, length);
-	write_address += length;
+   do {
+      writable_length = rfs_access_memory(fs, &write_address, length - index, WRITE); // Transforms the write address (or fails if end of file) if we are at the end of a readable section
+
+      if(writable_length <= 0) {
+         end_of_file = true;
+         return;
+      } else {
+         end_of_file = false;
+      }
+
+      fs->write(write_address, buffer + index, writable_length);
+
+      index += writable_length;
+      write_address += writable_length;
+   } while(index < length);
 }
 
 static void raw_write8(uint8_t data) {
