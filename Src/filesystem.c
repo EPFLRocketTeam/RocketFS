@@ -79,14 +79,16 @@ void rocket_fs_bind(
 }
 
 void rocket_fs_device(FileSystem* fs, const char *id, uint32_t capacity, uint32_t block_size) {
-	if(block_size >= NUM_BLOCKS) {
+	if(block_size < NUM_BLOCKS) {
+		fs->log("Fatal: Device's sub-sector granularity is too high. Consider using using a device with higher block_size.");
+	} else if(block_size * NUM_BLOCKS > capacity) {
+		fs->log("Fatal: Device's sub-sector granularity is too low. Consider using using a device with lower block_size.");
+	} else {
 		fs->id = id;
 		fs->addressable_space = capacity;
 		fs->block_size = block_size;
 		fs->device_configured = true;
 		fs->partition_table_modified = false;
-	} else {
-		fs->log("Fatal: Device's sub-sector granularity is too high. Consider using using a device with higher subsector_size.");
 	}
 }
 
@@ -163,14 +165,15 @@ void rocket_fs_format(FileSystem* fs) {
 	/*
 	 * Blocks 0 to 7 are reserved anyways
 	 */
+
 	stream.write8(~0b00001110); // Core block (used as internal relative clock)
-	stream.write8(~0b00001110); // Master partition block
-	stream.write8(~0b00001110); // Recovery partition block
-	stream.write8(~0b00001110); // Backup partition block 1
-	stream.write8(~0b00001110); // Backup partition block 2
-	stream.write8(~0b00001110); // Backup partition block 3
-	stream.write8(~0b00001110); // Backup partition block 4
-	stream.write8(~0b00001110); // Journal block
+	stream.write8(~0b00001111); // Master partition block
+	stream.write8(~0b00001111); // Recovery partition block
+	stream.write8(~0b00001111); // Backup partition block 1
+	stream.write8(~0b00001111); // Backup partition block 2
+	stream.write8(~0b00001111); // Backup partition block 3
+	stream.write8(~0b00001111); // Backup partition block 4
+	stream.write8(~0b00001111); // Journal block
 
 	stream.close();
 
@@ -211,6 +214,8 @@ void rocket_fs_flush(FileSystem* fs) {
 		fs->erase_block(fs->block_size); // Erase the master partition block
 
 	   fs->log("Master partition block erased.");
+
+		rfs_block_write_header(fs, 1, 0, 0);
 
 		uint32_t master_base = rfs_get_block_base_address(fs, 1);
 
@@ -267,7 +272,7 @@ File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
 			uint16_t first_block_id = rfs_block_alloc(fs, type);
 			rfs_block_write_header(fs, first_block_id, file_id, 0);
 
-			fs->partition_table[first_block_id] |= 3; // Set the file base block immortal
+			fs->partition_table[first_block_id] |= 0b00001111; // Set the file base block immortal
 
 			uint32_t address = rfs_get_block_base_address(fs, first_block_id);
 

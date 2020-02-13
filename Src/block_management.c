@@ -124,6 +124,8 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
 		if(*meta == 0) {
 			// We found a free block!
 
+			printf("Allocated block ID %d\n", block_id);
+
 			fs->total_used_blocks++;
 
 			*meta = (type << 4) | 0b1100;
@@ -154,13 +156,14 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
 	fs->partition_table_modified = true;
 
 	// Now, we have to update the predecessor/successor references to avoid inconsistencies in the filesystem.
+    uint8_t header[8];
+
+    fs->read(fs->block_size * oldest_block_id, header, 8);
+
    uint16_t successor_block_id = fs->data_blocks[oldest_block_id].successor;
-   uint16_t predecessor_block_id = 0;
+   uint16_t predecessor_block_id = (header[5] << 8) || header[6];
 
    if(successor_block_id) {
-      uint8_t header[8];
-
-      fs->read(fs->block_size * oldest_block_id, header, 8);
 
       /*
        * The following lines contain code to minimise the corruption caused by a flash memory overflow.
@@ -176,12 +179,14 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
       fs->write(fs->block_size * successor_block_id + 8, overwrite_buffer, 8); // Set the successor block full
        */
 
-      fs->data_blocks[predecessor_block_id].successor = successor_block_id;
-
       File* old_file = &fs->files[(header[5] << 8) | header[4]];
 
       old_file->length -= 4096;
       old_file->used_blocks--;
+   }
+
+   if(predecessor_block_id) {
+	   fs->data_blocks[predecessor_block_id].successor = successor_block_id;
    }
 
    fs->data_blocks[oldest_block_id].successor = 0;
@@ -290,12 +295,18 @@ uint16_t rfs_load_file_meta(FileSystem* fs, File* file) {
    file->length = 0;
    file->used_blocks = 0;
 
+   uint16_t counter = 0;
+
    while(block_id) {
       file->length += rfs_compute_block_length(fs, block_id);
       file->used_blocks++;
       file->last_block = block_id;
 
       block_id = fs->data_blocks[block_id].successor;
+
+      if(counter++ > NUM_BLOCKS) {
+    	  break;
+      }
    }
 
    return file->used_blocks;
@@ -429,7 +440,7 @@ static void rfs_decrease_relative_time(FileSystem* fs) {
 	for(uint16_t block_id = 0; block_id < NUM_BLOCKS; block_id++) {
 		uint8_t* meta = &(fs->partition_table[block_id]);
 
-		if((*meta & 0xF) > 0 && (*meta & 0xF) < 0xF) {
+		if((*meta & 0b00001111) > 0 && (*meta & 0b00001111) < 0xF) {
 			(*meta)--;
 		}
 	}

@@ -7,7 +7,7 @@
 
 #ifdef TESTING
 
-#define TEST_SIZE 110000
+#define TEST_SIZE 3000
 
 #include "emulator.h"
 #include "rocket_fs.h"
@@ -26,11 +26,6 @@ void stream_garbage(FileSystem* fs, const char* name, uint8_t generator) {
 
 	for(uint32_t i = 0; i < TEST_SIZE; i++) {
 		stream.write32(i * generator);
-		stream.write8(5);
-      stream.write32(12349534);
-      stream.write8(6);
-      stream.write8(243);
-      stream.write8(42);
 	}
 
 	stream.close();
@@ -47,18 +42,13 @@ void validate_garbage(FileSystem* fs, const char* name, uint8_t generator) {
 
    for(uint32_t i = 0; i < TEST_SIZE; i++) {
       value = stream.read32();
-      stream.read8();
-      stream.read32();
-      stream.read8();
-      stream.read8();
-      stream.read8();
 
       if(value == i * generator) {
          success++;
       }
    }
 
-   printf("Validation successfull at %.2f%% for %s\n", 100.0f * success / TEST_SIZE, name);
+   printf("Validation successful at %.2f%% for %s\n", 100.0f * success / TEST_SIZE, name);
 
    stream.close();
 }
@@ -74,39 +64,20 @@ int main() {
 
 
 	File* file1 = rocket_fs_newfile(&fs, "FLIGHT_DATA", RAW);
-	rocket_fs_newfile(&fs, "test2", RAW);
-	rocket_fs_newfile(&fs, "test3", RAW);
-	File* file4 = rocket_fs_newfile(&fs, "test4", RAW);
 
 	stream_garbage(&fs, "FLIGHT_DATA", 1);
-	stream_garbage(&fs, "test2", 2);
-
-	rocket_fs_delfile(&fs, file1);
-
-	stream_garbage(&fs, "test3", 3);
-
-	rocket_fs_newfile(&fs, "FLIGHT_DATA", RAW);
-
-	stream_garbage(&fs, "FLIGHT_DATA", 5);
-	stream_garbage(&fs, "test4", 4);
+	validate_garbage(&fs, "FLIGHT_DATA", 1);
 
 	Stream stream;
-	rocket_fs_stream(&stream, &fs, file4, APPEND);
+	rocket_fs_stream(&stream, &fs, file1, APPEND);
 	stream.write((uint8_t*) "THIS TEXT FRAGMENT SHOULD BE APPENDED.", 38);
 	stream.close();
 
-   validate_garbage(&fs, "FLIGHT_DATA", 5);
-   validate_garbage(&fs, "test2", 2);
-   validate_garbage(&fs, "test3", 3);
-   validate_garbage(&fs, "test4", 4);
 
 	rocket_fs_unmount(&fs);
 	rocket_fs_mount(&fs);
 
-	validate_garbage(&fs, "FLIGHT_DATA", 5);
-   validate_garbage(&fs, "test2", 2);
-   validate_garbage(&fs, "test3", 3);
-   validate_garbage(&fs, "test4", 4);
+	validate_garbage(&fs, "FLIGHT_DATA", 1);
 
 
 	emu_deinit();
