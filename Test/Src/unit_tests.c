@@ -7,7 +7,7 @@
 
 #ifdef TESTING
 
-#define TEST_SIZE 2005
+#define TEST_SIZE 128
 
 #include "emulator.h"
 #include "rocket_fs.h"
@@ -25,30 +25,48 @@ void stream_garbage(FileSystem* fs, const char* name, uint8_t generator) {
 	rocket_fs_stream(&stream, fs, file, OVERWRITE);
 
 	for(uint32_t i = 0; i < TEST_SIZE; i++) {
-		stream.write8(i * generator);
+		uint64_t value = i * generator % 256;
+
+		if(i % 2 == 0) {
+			stream.write64(value);
+		} else if(i % 3 == 0) {
+			stream.write32(value);
+		} else if(i % 5 == 0) {
+			stream.write16(value);
+		} else {
+			stream.write8(value);
+		}
 	}
 
 	stream.close();
 }
 
 void validate_garbage(FileSystem* fs, const char* name, uint8_t generator) {
-   File* file = rocket_fs_getfile(fs, name);
-   uint32_t value;
+	File* file = rocket_fs_getfile(fs, name);
+	uint64_t value;
 
-   Stream stream;
-   rocket_fs_stream(&stream, fs, file, OVERWRITE);
+	Stream stream;
+	rocket_fs_stream(&stream, fs, file, OVERWRITE);
 
-   for(uint32_t i = 0; i < TEST_SIZE + 64; i++) {
-      value = stream.read8();
+	for(uint32_t i = 0; i < TEST_SIZE + 64; i++) {
+		if(i % 2 == 0) {
+		   value = stream.read64();
+		} else if(i % 3 == 0) {
+		   value = stream.read32();
+		} else if(i % 5 == 0) {
+			value = stream.read16();
+		} else {
+			value = stream.read8();
+		}
 
-      if(*stream.eof) {
-      	break;
-      }
+		if(*stream.eof) {
+			break;
+		}
 
-      printf("%d\n", value);
-   }
+		printf("%d\n", value);
+	}
 
-   stream.close();
+	stream.close();
 }
 
 int main() {

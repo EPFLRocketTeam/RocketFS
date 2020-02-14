@@ -235,26 +235,25 @@ int32_t rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Ac
          case READ:
             return -1; // End of file
          case WRITE: {
-            uint8_t buffer[2];
-            fs->read(block_id * fs->block_size + 4, buffer, 2); // Read the file identifier
-            uint16_t file_id = (buffer[1] << 8) | buffer[0];
+			uint8_t buffer[2];
+			fs->read(block_id * fs->block_size + 4, buffer, 2); // Read the file identifier
+			uint16_t file_id = (buffer[1] << 8) | buffer[0];
+			File* file = &(fs->files[file_id]);
 
-            FileType file_type = (FileType) (fs->partition_table[block_id] >> 4);
-            uint16_t new_block_id = rfs_block_alloc(fs, file_type); // Allocate a new block
+			FileType file_type = (FileType) (fs->partition_table[block_id] >> 4);
+			uint16_t new_block_id = rfs_block_alloc(fs, file_type); // Allocate a new block
 
-            rfs_block_write_header(fs, new_block_id, file_id, block_id);
+			rfs_block_write_header(fs, new_block_id, file_id, block_id);
 
-            File* file = &(fs->files[file_id]);
+			file->used_blocks += 1;
+			file->last_block = new_block_id;
+			file->length += fs->block_size;
 
-            file->used_blocks += 1;
-            file->last_block = new_block_id;
-            file->length += fs->block_size;
+			fs->data_blocks[block_id].successor = new_block_id;
 
-            fs->data_blocks[block_id].successor = new_block_id;
+			successor_block = new_block_id;
 
-            successor_block = new_block_id;
-
-            break;
+			break;
          }
          default:
             return -1; // Not implemented
@@ -267,14 +266,16 @@ int32_t rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Ac
 
    uint32_t max_length = fs->block_size;
 
-   if(access_type == WRITE || *address < PROTECTED_BLOCKS * fs->block_size) {
-	   rfs_block_update_usage_table(fs, *address, *address + length - 1);
-   } else if(access_type == READ) {
+   if(access_type == READ && *address >= fs->block_size * PROTECTED_BLOCKS) {
 	   max_length = rfs_compute_block_length(fs, block_id);
    }
 
    if(internal_address + length > max_length) {
-	   return max_length - internal_address; // Readable/Writable length correction
+	   length = max_length - internal_address; // Readable/Writable length correction
+   }
+
+   if(access_type == WRITE) {
+	   rfs_block_update_usage_table(fs, *address, *address + length - 1);
    }
 
    return length;
@@ -358,7 +359,7 @@ static uint32_t __compute_block_length(FileSystem* fs, uint64_t usage_table) {
 		usage_table >>= 1;
 	}
 
-	return fs->block_size / 64 * length;
+	return fs->block_size * length / 64;
 }
 
 
