@@ -131,8 +131,6 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
 		if(*meta == 0) {
 			// We found a free block!
 
-			printf("Allocated block ID %d\n", block_id);
-
 			fs->total_used_blocks++;
 
 			*meta = (type << 4) | 0b1100;
@@ -157,9 +155,7 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
 		rfs_decrease_relative_time(fs);
 	}
 
-	printf("Reallocated block ID %d\n", oldest_block_id);
-
-   fs->partition_table[oldest_block_id] = (type << 4) | 0b1100; // Reset the entry in the partition table
+    fs->partition_table[oldest_block_id] = (type << 4) | 0b1100; // Reset the entry in the partition table
 	fs->partition_table_modified = true;
 
 	// Now, we have to update the predecessor/successor references to avoid inconsistencies in the filesystem.

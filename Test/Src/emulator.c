@@ -38,7 +38,7 @@ static void __memand(uint8_t* destination, uint8_t* source, uint32_t length) {
  * Memory pointer
  */
 
-uint8_t* __emu_memory;
+static uint8_t* __emu_memory;
 
 /*
  * Implementation

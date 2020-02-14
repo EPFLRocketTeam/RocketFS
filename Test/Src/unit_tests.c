@@ -7,7 +7,7 @@
 
 #ifdef TESTING
 
-#define TEST_SIZE 128
+#define TEST_SIZE 819281
 
 #include "emulator.h"
 #include "rocket_fs.h"
@@ -41,7 +41,7 @@ void stream_garbage(FileSystem* fs, const char* name, uint8_t generator) {
 	stream.close();
 }
 
-void validate_garbage(FileSystem* fs, const char* name, uint8_t generator) {
+void validate_garbage(FileSystem* fs, const char* name) {
 	File* file = rocket_fs_getfile(fs, name);
 	uint64_t value;
 
@@ -63,7 +63,7 @@ void validate_garbage(FileSystem* fs, const char* name, uint8_t generator) {
 			break;
 		}
 
-		printf("%d\n", value);
+		printf("%ld\n", value);
 	}
 
 	stream.close();
@@ -79,10 +79,10 @@ int main() {
 	rocket_fs_mount(&fs);
 
 
-	File* file1 = rocket_fs_newfile(&fs, "FLIGHT_DATA", RAW);
+	File* file1 = rocket_fs_newfile(&fs, "file1", RAW);
 
-	stream_garbage(&fs, "FLIGHT_DATA", 1);
-	validate_garbage(&fs, "FLIGHT_DATA", 1);
+	stream_garbage(&fs, "file1", 1);
+	validate_garbage(&fs, "file1");
 
 	Stream stream;
 	rocket_fs_stream(&stream, &fs, file1, APPEND);
@@ -91,12 +91,31 @@ int main() {
 	stream.close();
 
 
+	File* file2 = rocket_fs_newfile(&fs, "file2", RAW);
+
+	stream_garbage(&fs, "file2", 2);
+
+	printf("\nFile 1:\n");
+	validate_garbage(&fs, "file1");
+
+	printf("\nFile 2:\n");
+	validate_garbage(&fs, "file2");
+
 	rocket_fs_unmount(&fs);
 	rocket_fs_mount(&fs);
 
+	printf("\nFile 1:\n");
+	validate_garbage(&fs, "file1");
 
-	validate_garbage(&fs, "FLIGHT_DATA", 1);
+	printf("\nFile 2:\n");
+	validate_garbage(&fs, "file2");
 
+	rocket_fs_delfile(&fs, file1);
+
+	printf("\nFile 2:\n");
+	validate_garbage(&fs, "file2");
+
+	rocket_fs_delfile(&fs, file2);
 
 	emu_deinit();
 

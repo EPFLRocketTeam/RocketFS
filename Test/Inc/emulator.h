@@ -17,9 +17,9 @@
 #ifdef TESTING
 
 
-#define FS_ADDRESSABLE_SPACE (1 << 12) // 16MB 24
+#define FS_ADDRESSABLE_SPACE (1 << 24) // 16MB 24
 #define FS_SECTOR_SIZE       (1 << 19) // 512KB 19
-#define FS_SUBSECTOR_SIZE    (1 << 6) // 4KB 12
+#define FS_SUBSECTOR_SIZE    (1 << 12) // 4KB 12
 
 
 /*
