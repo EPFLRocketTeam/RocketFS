@@ -75,10 +75,13 @@ bool init_stream(Stream* stream, FileSystem* filesystem, uint32_t base_address, 
 }
 
 static void __close() {
-	fs = 0;
 	read_address = 0xFFFFFFFFL;
 	write_address = 0xFFFFFFFFL;
 	file_open = false;
+
+	rocket_fs_flush(fs);
+
+	fs = 0;
 }
 
 /* RAW IO FUNCTIONS */
@@ -91,7 +94,7 @@ static int32_t raw_read(uint8_t* buffer, uint32_t length) {
 	do {
 	   readable_length = rfs_access_memory(fs, &read_address, length - index, READ); // Transforms the write address (or fails if end of file) if we are at the end of a readable section
 
-	   if(readable_length < 0) {
+	   if(readable_length <= 0) {
          end_of_file = true;
          return index;
       } else {

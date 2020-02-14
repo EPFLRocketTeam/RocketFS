@@ -25,6 +25,7 @@ void rfs_block_write_header(FileSystem* fs, uint16_t block_id, uint16_t file_id,
 int32_t rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, AccessType access_type);
 
 uint16_t rfs_load_file_meta(FileSystem* fs, File* file);
+void rfs_set_file_root(FileSystem* fs, uint16_t block_id);
 uint32_t rfs_compute_block_length(FileSystem* fs, uint16_t block_id);
 uint32_t rfs_get_block_base_address(FileSystem* fs, uint16_t block_id);
 

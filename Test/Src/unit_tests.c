@@ -7,7 +7,7 @@
 
 #ifdef TESTING
 
-#define TEST_SIZE 3000
+#define TEST_SIZE 2005
 
 #include "emulator.h"
 #include "rocket_fs.h"
@@ -25,7 +25,7 @@ void stream_garbage(FileSystem* fs, const char* name, uint8_t generator) {
 	rocket_fs_stream(&stream, fs, file, OVERWRITE);
 
 	for(uint32_t i = 0; i < TEST_SIZE; i++) {
-		stream.write32(i * generator);
+		stream.write8(i * generator);
 	}
 
 	stream.close();
@@ -38,17 +38,15 @@ void validate_garbage(FileSystem* fs, const char* name, uint8_t generator) {
    Stream stream;
    rocket_fs_stream(&stream, fs, file, OVERWRITE);
 
-   uint32_t success = 0;
+   for(uint32_t i = 0; i < TEST_SIZE + 64; i++) {
+      value = stream.read8();
 
-   for(uint32_t i = 0; i < TEST_SIZE; i++) {
-      value = stream.read32();
-
-      if(value == i * generator) {
-         success++;
+      if(*stream.eof) {
+      	break;
       }
-   }
 
-   printf("Validation successful at %.2f%% for %s\n", 100.0f * success / TEST_SIZE, name);
+      printf("%d\n", value);
+   }
 
    stream.close();
 }
@@ -70,12 +68,14 @@ int main() {
 
 	Stream stream;
 	rocket_fs_stream(&stream, &fs, file1, APPEND);
+	stream.write8(42);
 	stream.write((uint8_t*) "THIS TEXT FRAGMENT SHOULD BE APPENDED.", 38);
 	stream.close();
 
 
 	rocket_fs_unmount(&fs);
 	rocket_fs_mount(&fs);
+
 
 	validate_garbage(&fs, "FLIGHT_DATA", 1);
 

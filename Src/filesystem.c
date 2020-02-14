@@ -206,14 +206,14 @@ void rocket_fs_format(FileSystem* fs) {
  * Flushes the partition table
  */
 void rocket_fs_flush(FileSystem* fs) {
-	fs_check_mounted(fs);
+	if(fs->mounted && fs->partition_table_modified) {
+		fs->log("Flushing partition table...");
 
-	fs->log("Flushing partition table...");
+		fs->partition_table_modified = false;
 
-	if(fs->partition_table_modified) {
 		fs->erase_block(fs->block_size); // Erase the master partition block
 
-	   fs->log("Master partition block erased.");
+		fs->log("Master partition block erased.");
 
 		rfs_block_write_header(fs, 1, 0, 0);
 
@@ -227,16 +227,12 @@ void rocket_fs_flush(FileSystem* fs) {
 		   fs->reverse_partition_table[i] = ~fs->partition_table[i];
 		}
 
-      fs->log("Partition data encoded.");
+		fs->log("Partition data encoded.");
 
 		stream.write(fs->reverse_partition_table, NUM_BLOCKS);
 		stream.close();
 
-		fs->partition_table_modified = false;
-
 		fs->log("Partition table flushed.");
-	} else {
-		fs->log("Nothing to flush.");
 	}
 }
 
@@ -271,8 +267,7 @@ File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type) {
 
 			uint16_t first_block_id = rfs_block_alloc(fs, type);
 			rfs_block_write_header(fs, first_block_id, file_id, 0);
-
-			fs->partition_table[first_block_id] |= 0b00001111; // Set the file base block immortal
+			rfs_set_file_root(fs, first_block_id);
 
 			uint32_t address = rfs_get_block_base_address(fs, first_block_id);
 
@@ -370,11 +365,7 @@ bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mod
 
 	case APPEND: {
 		uint16_t last_block = file->last_block;
-		uint32_t base_address = rfs_get_block_base_address(fs, last_block) + rfs_compute_block_length(fs, last_block);
-
-		if(file->first_block == file->last_block) {
-		   base_address += 16; // Do not overwrite the identifier.
-		}
+		uint32_t base_address = last_block * fs->block_size + rfs_compute_block_length(fs, last_block);
 
 		FileType type = fs->partition_table[last_block] >> 4;
 
