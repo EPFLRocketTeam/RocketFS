@@ -134,6 +134,10 @@ uint16_t rfs_block_alloc(FileSystem* fs, FileType type) {
 			fs->total_used_blocks++;
 
 			*meta = (type << 4) | 0b1100;
+
+			uint32_t address = rfs_get_block_base_address(fs, 1) + block_id;
+		    fs->write(address, meta, 8);
+
 			fs->partition_table_modified = true;
 
 			fs->data_blocks[block_id].successor = 0;
@@ -202,7 +206,6 @@ void rfs_block_free(FileSystem* fs, uint16_t block_id) {
 }
 
 
-
 /*
  * This function transforms the memory access operation to ensure that no block is overwritten.
  *
@@ -261,20 +264,26 @@ int32_t rfs_access_memory(FileSystem* fs, uint32_t* address, uint32_t length, Ac
    }
 
    uint32_t max_length = fs->block_size;
+   uint32_t new_length = length;
 
    if(access_type == READ && *address >= fs->block_size * PROTECTED_BLOCKS) {
 	   max_length = rfs_compute_block_length(fs, block_id);
    }
 
    if(internal_address + length > max_length) {
-	   length = max_length - internal_address; // Readable/Writable length correction
+	   new_length = max_length - internal_address; // Readable/Writable length correction
+   }
+
+   if(internal_address != fs->block_size && new_length == 0) { // Goto next block
+	   *address = (block_id + 1) * fs->block_size;
+	   return rfs_access_memory(fs, address, length, access_type);
    }
 
    if(access_type == WRITE) {
-	   rfs_block_update_usage_table(fs, *address, *address + length - 1);
+	   rfs_block_update_usage_table(fs, *address, *address + new_length - 1);
    }
 
-   return length;
+   return new_length;
 }
 
 
@@ -439,7 +448,7 @@ static void rfs_update_relative_time(FileSystem* fs) {
 	uint8_t anchor = fs->partition_table[0] & 0xF; // Core block meta is used as a time reference
 	uint8_t available_space = 16 - (fs->total_used_blocks * 16UL) / NUM_BLOCKS; // Ranges from 0 to 15
 
-	if(anchor > available_space) {
+	if(available_space < anchor) {
 		rfs_decrease_relative_time(fs);
 	}
 }

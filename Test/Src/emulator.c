@@ -48,9 +48,13 @@ void emu_init() {
 
 	__emu_memory = (uint8_t*) malloc(sizeof(uint8_t) * FS_ADDRESSABLE_SPACE);
 
-	for(uint32_t i = 0; i < FS_ADDRESSABLE_SPACE; i++) {
+
+	FILE* file = fopen("FLASH.DMP", "rb");
+	fread(__emu_memory, 1, FS_ADDRESSABLE_SPACE, file);
+
+	/*for(uint32_t i = 0; i < FS_ADDRESSABLE_SPACE; i++) {
 		__emu_memory[i] = i % 256;
-	}
+	}*/
 
 	if(!__emu_memory) {
 		__emu_fatal("Unable to allocate memory for the emulator");
