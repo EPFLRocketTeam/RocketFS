@@ -5,7 +5,7 @@
  *      Author: pcoo56
  */
 
-#ifdef TESTING
+#ifdef DEBUG
 
 
 #include <stdio.h>
@@ -48,13 +48,12 @@ void emu_init() {
 
 	__emu_memory = (uint8_t*) malloc(sizeof(uint8_t) * FS_ADDRESSABLE_SPACE);
 
+	/*FILE* file = fopen("FLASH.DMP", "rb");
+	fread(__emu_memory, 1, FS_ADDRESSABLE_SPACE, file);*/
 
-	FILE* file = fopen("FLASH.DMP", "rb");
-	fread(__emu_memory, 1, FS_ADDRESSABLE_SPACE, file);
-
-	/*for(uint32_t i = 0; i < FS_ADDRESSABLE_SPACE; i++) {
+	for(uint32_t i = 0; i < FS_ADDRESSABLE_SPACE; i++) {
 		__emu_memory[i] = i % 256;
-	}*/
+	}
 
 	if(!__emu_memory) {
 		__emu_fatal("Unable to allocate memory for the emulator");
@@ -97,6 +96,15 @@ void emu_erase_sector(uint32_t address) {
 	}
 
 	memset(__emu_memory + address - address % FS_SECTOR_SIZE, 0xFF, FS_SECTOR_SIZE);
+}
+
+void emu_dump(uint32_t block) {
+	printf("=== Dumping block %d ===\n", block);
+
+	for(uint16_t i = 0; i < FS_SUBSECTOR_SIZE; i++) {
+		uint16_t j = block * FS_SUBSECTOR_SIZE + i;
+		printf("%d: %d\n", j, __emu_memory[j]);
+	}
 }
 
 #endif

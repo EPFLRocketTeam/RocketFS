@@ -349,6 +349,14 @@ File* rocket_fs_getfile(FileSystem* fs, const char* name) {
 	return 0;
 }
 
+bool rocket_fs_touch(FileSystem* fs, File* file) {
+	fs_check_mounted(fs);
+
+	rfs_load_file_meta(fs, file);
+
+	return true;
+}
+
 
 bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mode) {
 	fs_check_mounted(fs);
@@ -358,7 +366,7 @@ bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mod
 		uint16_t first_block = file->first_block;
 		uint32_t base_address = rfs_get_block_base_address(fs, first_block) + 16; // Do not overwrite the 16-characters long identifier
 
-		FileType type = fs->partition_table[first_block] >> 4;
+		FileType type = static_cast<FileType>(fs->partition_table[first_block] >> 4);
 
 		return init_stream(stream, fs, base_address, type);
 	}
@@ -367,7 +375,7 @@ bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mod
 		uint16_t last_block = file->last_block;
 		uint32_t base_address = last_block * fs->block_size + rfs_compute_block_length(fs, last_block);
 
-		FileType type = fs->partition_table[last_block] >> 4;
+		FileType type = static_cast<FileType>(fs->partition_table[last_block] >> 4);
 
 		return init_stream(stream, fs, base_address, type);
 	}

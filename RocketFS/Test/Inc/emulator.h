@@ -14,7 +14,7 @@
 /*
  * Export emulator functions and constants only in development mode
  */
-#ifdef TESTING
+#ifdef DEBUG
 
 
 #define FS_ADDRESSABLE_SPACE (1 << 24) // 16MB 24
@@ -31,7 +31,7 @@ void emu_read(uint32_t address, uint8_t* buffer, uint32_t length);
 void emu_write(uint32_t address, uint8_t* buffer, uint32_t length);
 void emu_erase_subsector(uint32_t address);
 void emu_erase_sector(uint32_t address);
-
+void emu_dump(uint32_t block);
 
 #endif
 

@@ -23,26 +23,6 @@
 
 
 
-typedef struct Stream {
-	bool* eof;
-
-	void (*close)();
-
-	int32_t  (*read)(uint8_t* buffer, uint32_t length);
-	uint8_t  (*read8)();
-	uint16_t (*read16)();
-	uint32_t (*read32)();
-	uint64_t (*read64)();
-
-	void (*write)(uint8_t* buffer, uint32_t length);
-	void (*write8)(uint8_t data);
-	void (*write16)(uint16_t data);
-	void (*write32)(uint32_t data);
-	void (*write64)(uint64_t data);
-} Stream;
-
-
-
 /*
  * Since stm32f446 only has 128KB memory, we cannot afford more than 16-bytes data-blocks...
  */
@@ -78,6 +58,32 @@ typedef struct FileSystem {
 
 typedef enum StreamMode { OVERWRITE, APPEND } StreamMode;
 
+class Stream {
+public:
+	Stream();
+
+	void close();
+
+	int32_t  read(uint8_t* buffer, uint32_t length);
+	uint8_t  read8();
+	uint16_t read16();
+	uint32_t read32();
+	uint64_t read64();
+
+	void write(uint8_t* buffer, uint32_t length);
+	void write8(uint8_t data);
+	void write16(uint16_t data);
+	void write32(uint32_t data);
+	void write64(uint64_t data);
+
+	FileSystem* fs;
+	FileType type;
+	bool eof;
+	bool open;
+	uint32_t read_address;
+	uint32_t write_address;
+};
+
 
 void rocket_fs_debug(FileSystem* fs, void (*logger)(const char*));
 void rocket_fs_device(FileSystem* fs, const char *id, uint32_t capacity, uint32_t block_size);
@@ -96,6 +102,7 @@ void rocket_fs_flush(FileSystem* fs); // Flushes the partition table
 File* rocket_fs_newfile(FileSystem* fs, const char* name, FileType type);
 void rocket_fs_delfile(FileSystem* fs, File* file);
 File* rocket_fs_getfile(FileSystem* fs, const char* name);
+bool rocket_fs_touch(FileSystem* fs, File* file);
 bool rocket_fs_stream(Stream* stream, FileSystem* fs, File* file, StreamMode mode);
 
 
